@@ -413,6 +413,17 @@ class ServiceRequest(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class ServiceRequestCreate(BaseModel):
+    """Model for creating a service request (from buyer)"""
+    title: str
+    description: str
+    category: str
+    budget: float
+    deadline: Optional[str] = None  # ISO string format, optional
+    skills_required: List[str] = []
+    experience_level: str = "intermediate"
+
+
 class Proposal(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     service_request_id: str

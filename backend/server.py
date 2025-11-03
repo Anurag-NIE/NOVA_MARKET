@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 
 # Configuration and database
 from config import settings
-from database import database, get_db, init_indexes
+from database import database, get_db, init_indexes, check_database_health
 from utils.websocket_manager import connection_manager
 from utils.auth_utils import get_current_user
 from models import User, TimeSlot, ServiceAvailability, Booking, BookingCreate, AvailabilityCreate
@@ -25,7 +25,6 @@ from services import booking_service
 
 # Near the top with other imports
 from routes import freelancer_routes
-
 
 # ============ LOGGING SETUP ============
 logging.basicConfig(
@@ -77,6 +76,84 @@ async def lifespan(app: FastAPI):
             redis_client.close()
         logger.info("👋 Shutting down NovoMarket Backend...")
 
+
+
+
+
+
+# # ============ CREATE APP ============
+# app = FastAPI(
+#     title=settings.APP_NAME,
+#     version=settings.APP_VERSION,
+#     description="Multi-Client Service Marketplace API with Advanced Features",
+#     docs_url="/docs",
+#     redoc_url="/redoc",
+#     lifespan=lifespan
+# )
+
+# # ============ MIDDLEWARE ============
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=settings.CORS_ORIGINS,
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+# # ============ INCLUDE ROUTERS ============
+# from routes import marketplace, notification_routes, service_request_routes, booking_routes
+
+# # Include all routers
+# app.include_router(marketplace.router, prefix="/api", tags=["Marketplace"])
+# app.include_router(notification_routes.router, prefix="/api", tags=["Notifications"])
+# app.include_router(service_request_routes.router, prefix="/api", tags=["Service Requests"])
+# app.include_router(booking_routes.router, prefix="/api", tags=["Bookings"])
+# app.include_router(freelancer_routes.router, prefix="/api", tags=["Freelancer"])
+
+# # Dual Marketplace Routes
+# try:
+#     from routes import products, services, checkout, reviews
+#     app.include_router(products.router, prefix="/api", tags=["Products"])
+#     app.include_router(services.router, prefix="/api", tags=["Services"])
+#     app.include_router(checkout.router, prefix="/api", tags=["Checkout"])
+#     app.include_router(reviews.router, prefix="/api", tags=["Reviews"])
+#     logger.info("✅ Dual marketplace routes included")
+# except ImportError as e:
+#     logger.warning(f"⚠️ Dual marketplace routes not found: {e}")
+
+
+# # Try to include freelancer routes
+# try:
+#     from routes import freelancer_routes
+#     app.include_router(freelancer_routes.router, prefix="/api", tags=["Freelancer"])
+#     logger.info("✅ Freelancer routes included")
+# except ImportError as e:
+#     logger.warning(f"⚠️ Freelancer routes not found: {e}")
+
+# # Include notification service router if available
+# if hasattr(notification_service, 'router'):
+#     app.include_router(notification_service.router, prefix="/api/notifications", tags=["Notifications Service"])
+#     logger.info("✅ Notification service router included")
+
+# # ============ STATIC FILES ============
+# try:
+#     app.mount("/uploads", StaticFiles(directory=str(settings.UPLOAD_DIR)), name="uploads")
+#     logger.info("✅ Static files mounted at /uploads")
+# except Exception as e:
+#     logger.warning(f"⚠️ Failed to mount static files: {e}")
+
+
+
+
+
+
+
+
+
+# backend/server.py - FIXED ROUTER INCLUSION
+
+# ... (keep your existing imports and lifespan code) ...
+
 # ============ CREATE APP ============
 app = FastAPI(
     title=settings.APP_NAME,
@@ -87,38 +164,96 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+@app.get("/test-cors")
+async def test_cors():
+    return {"message": "CORS works!"}
+
+# Simple health endpoint to verify MongoDB and Redis connections
+@app.get("/api/health")
+async def health():
+    return await check_database_health()
+
+
 # ============ MIDDLEWARE ============
+# CORS origins - ensure no duplicates and localhost is always allowed
+cors_origins = list(set(settings.CORS_ORIGINS + ["http://localhost:3000", "http://127.0.0.1:3000"]))
+logger.info(f"🌐 CORS Origins configured: {cors_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
-# ============ INCLUDE ROUTERS ============
-from routes import marketplace, notification_routes, service_request_routes, booking_routes
+# ============ INCLUDE ROUTERS - FIXED VERSION ============
 
-# Include all routers
+# Core routes (always available)
+from routes import marketplace, notification_routes, booking_routes
+
 app.include_router(marketplace.router, prefix="/api", tags=["Marketplace"])
 app.include_router(notification_routes.router, prefix="/api", tags=["Notifications"])
-# app.include_router(service_request_routes.router, prefix="/api", tags=["Service Requests"])
 app.include_router(booking_routes.router, prefix="/api", tags=["Bookings"])
-app.include_router(freelancer_routes.router, prefix="/api", tags=["Freelancer"])
+logger.info("✅ Core routes included")
 
+# Service Request Routes (Freelancer feature)
+try:
+    from routes import service_request_routes
+    app.include_router(service_request_routes.router, prefix="/api", tags=["Service Requests"])
+    logger.info("✅ Service request routes included")
+except ImportError as e:
+    logger.error(f"❌ Service request routes failed: {e}")
 
-# Try to include freelancer routes
+# Freelancer Routes
 try:
     from routes import freelancer_routes
     app.include_router(freelancer_routes.router, prefix="/api", tags=["Freelancer"])
     logger.info("✅ Freelancer routes included")
 except ImportError as e:
-    logger.warning(f"⚠️ Freelancer routes not found: {e}")
+    logger.error(f"❌ Freelancer routes failed: {e}")
 
-# Include notification service router if available
-if hasattr(notification_service, 'router'):
-    app.include_router(notification_service.router, prefix="/api/notifications", tags=["Notifications Service"])
-    logger.info("✅ Notification service router included")
+# Dual Marketplace Routes - INDIVIDUAL IMPORTS FOR BETTER ERROR HANDLING
+# Products Router
+try:
+    from routes import products
+    app.include_router(products.router, prefix="/api", tags=["Products"])
+    logger.info("✅ Products routes included")
+except ImportError as e:
+    logger.error(f"❌ Products routes failed: {e}")
+    import traceback
+    traceback.print_exc()
+
+# Services Router
+try:
+    from routes import services
+    app.include_router(services.router, prefix="/api", tags=["Services"])
+    logger.info("✅ Services routes included")
+except ImportError as e:
+    logger.error(f"❌ Services routes failed: {e}")
+    import traceback
+    traceback.print_exc()
+
+# Checkout Router
+try:
+    from routes import checkout
+    app.include_router(checkout.router, prefix="/api", tags=["Checkout"])
+    logger.info("✅ Checkout routes included")
+except ImportError as e:
+    logger.error(f"❌ Checkout routes failed: {e}")
+    import traceback
+    traceback.print_exc()
+
+# Reviews Router
+try:
+    from routes import reviews
+    app.include_router(reviews.router, prefix="/api", tags=["Reviews"])
+    logger.info("✅ Reviews routes included")
+except ImportError as e:
+    logger.error(f"❌ Reviews routes failed: {e}")
+    import traceback
+    traceback.print_exc()
 
 # ============ STATIC FILES ============
 try:
@@ -126,6 +261,12 @@ try:
     logger.info("✅ Static files mounted at /uploads")
 except Exception as e:
     logger.warning(f"⚠️ Failed to mount static files: {e}")
+
+# ... (rest of your server.py code remains the same) ...
+
+
+
+
 
 # ============ ROOT ENDPOINTS ============
 @app.get("/")
@@ -149,6 +290,11 @@ async def root():
             "✅ Reviews & Ratings"
         ]
     }
+
+@app.options("/{full_path:path}")
+async def options_handler(full_path: str):
+    """Handle OPTIONS requests for CORS preflight"""
+    return {"message": "OK"}
 
 @app.get("/health")
 async def health_check():

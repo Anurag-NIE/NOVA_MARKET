@@ -16,7 +16,7 @@ from services.notification_service import (
 )
 
 router = APIRouter(prefix="/bookings", tags=["Bookings"])
-
+    
 
 @router.get("/my-bookings")
 async def get_my_bookings(

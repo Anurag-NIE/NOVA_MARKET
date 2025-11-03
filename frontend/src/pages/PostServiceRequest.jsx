@@ -109,10 +109,37 @@ const PostServiceRequest = () => {
     setLoading(true);
 
     try {
-      const response = await api.post("/service-requests", {
-        ...formData,
+      // Format deadline as ISO string if provided
+      let deadlineValue = formData.deadline;
+      if (deadlineValue) {
+        // Convert date input (YYYY-MM-DD) to ISO string
+        const date = new Date(deadlineValue + "T00:00:00Z");
+        if (isNaN(date.getTime())) {
+          toast.error("Invalid deadline date format");
+          setLoading(false);
+          return;
+        }
+        deadlineValue = date.toISOString();
+      } else {
+        // Default to 30 days from now if not provided
+        const defaultDate = new Date();
+        defaultDate.setDate(defaultDate.getDate() + 30);
+        deadlineValue = defaultDate.toISOString();
+      }
+
+      const payload = {
+        title: formData.title.trim(),
+        description: formData.description.trim(),
+        category: formData.category,
         budget: parseFloat(formData.budget),
-      });
+        deadline: deadlineValue,
+        skills_required: formData.skills_required || [],
+        experience_level: formData.experience_level || "intermediate",
+      };
+
+      console.log("Posting service request with payload:", payload);
+
+      const response = await api.post("/service-requests", payload);
 
       toast.success("Service request posted successfully!");
       setTimeout(() => {
@@ -120,9 +147,52 @@ const PostServiceRequest = () => {
       }, 1500);
     } catch (error) {
       console.error("Error posting request:", error);
-      toast.error(
-        error.response?.data?.detail || "Failed to post service request"
-      );
+      console.error("Error details:", {
+        message: error?.message,
+        response: error?.response?.data,
+        status: error?.response?.status,
+        statusText: error?.response?.statusText,
+        request: error?.request,
+      });
+      
+      // Handle different error types
+      let errorMessage = "Failed to post service request";
+      
+      // Network errors (no response from server)
+      if (error.code === "ERR_NETWORK" || error.message === "Network Error" || !error.response) {
+        errorMessage = "Network error. Please check if the backend server is running.";
+        console.error("Network error - backend might be down or CORS issue");
+      }
+      // HTTP errors (server responded with error)
+      else if (error.response) {
+        const detail = error.response.data?.detail;
+        
+        if (detail) {
+          if (typeof detail === "string") {
+            errorMessage = detail;
+          } else if (Array.isArray(detail)) {
+            // Pydantic validation errors come as array
+            const messages = detail.map((err) => {
+              if (typeof err === "string") return err;
+              if (err?.msg) return `${err.loc?.join(".") || "Field"}: ${err.msg}`;
+              return JSON.stringify(err);
+            }).filter(Boolean);
+            errorMessage = messages.length > 0 ? messages.join(", ") : errorMessage;
+          } else if (typeof detail === "object") {
+            errorMessage = detail.msg || detail.message || JSON.stringify(detail);
+          }
+        } else if (error.response.data?.message) {
+          errorMessage = error.response.data.message;
+        } else {
+          errorMessage = `Server error (${error.response.status}): ${error.response.statusText || "Unknown error"}`;
+        }
+      }
+      // Other errors
+      else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }

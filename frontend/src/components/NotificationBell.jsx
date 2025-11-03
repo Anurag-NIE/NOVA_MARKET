@@ -4,6 +4,7 @@ import { Bell, Check, X } from "lucide-react";
 import api from "../utils/api";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import { getUser } from "../utils/auth";
 
 const NotificationBell = () => {
   const [notifications, setNotifications] = useState([]);
@@ -21,7 +22,7 @@ const NotificationBell = () => {
 
   const loadNotifications = async () => {
     try {
-      const response = await api.get("/notifications?limit=10");
+      const response = await api.get("/notifications", { params: { limit: 10 } });
       setNotifications(response.data.notifications || []);
 
       const unread =
@@ -29,20 +30,28 @@ const NotificationBell = () => {
       setUnreadCount(unread);
     } catch (error) {
       console.error("Error loading notifications:", error);
+      // Set empty arrays on error to prevent UI issues
+      setNotifications([]);
+      setUnreadCount(0);
     }
   };
 
   const markAsRead = async (notificationId) => {
+    if (!notificationId) {
+      console.error("Invalid notification ID");
+      return;
+    }
     try {
       await api.post(`/notifications/${notificationId}/mark-read`);
       setNotifications(
         notifications.map((n) =>
-          n.id === notificationId ? { ...n, read: true } : n
+          (n.id === notificationId || n._id === notificationId) ? { ...n, read: true } : n
         )
       );
       setUnreadCount(Math.max(0, unreadCount - 1));
     } catch (error) {
       console.error("Error marking as read:", error);
+      toast.error(error.response?.data?.detail || "Failed to mark as read");
     }
   };
 
@@ -55,14 +64,17 @@ const NotificationBell = () => {
       toast.success("All notifications marked as read");
     } catch (error) {
       console.error("Error marking all as read:", error);
-      toast.error("Failed to mark all as read");
+      toast.error(error.response?.data?.detail || "Failed to mark all as read");
     } finally {
       setLoading(false);
     }
   };
 
   const handleNotificationClick = (notification) => {
-    markAsRead(notification.id);
+    const notifId = notification.id || notification._id;
+    if (notifId) {
+      markAsRead(notifId);
+    }
     setShowDropdown(false);
 
     if (notification.link) {
@@ -79,6 +91,8 @@ const NotificationBell = () => {
       new_review: "⭐",
       payment_received: "💰",
       new_booking: "💼",
+      new_proposal: "📬",
+      proposal_received: "📬",
     };
     return icons[type] || "🔔";
   };
@@ -155,7 +169,7 @@ const NotificationBell = () => {
                 <div className="divide-y divide-gray-200 dark:divide-gray-700">
                   {notifications.map((notification) => (
                     <div
-                      key={notification.id}
+                      key={notification.id || notification._id}
                       onClick={() => handleNotificationClick(notification)}
                       className={`p-4 cursor-pointer transition-colors ${
                         notification.read
@@ -194,7 +208,7 @@ const NotificationBell = () => {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              markAsRead(notification.id);
+                              markAsRead(notification.id || notification._id);
                             }}
                             className="flex-shrink-0 p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"
                             title="Mark as read"
@@ -215,7 +229,12 @@ const NotificationBell = () => {
                 <button
                   onClick={() => {
                     setShowDropdown(false);
-                    navigate("/notifications");
+                    // Navigate to buyer or seller dashboard based on user role
+                    const user = getUser();
+                    const dashboardPath = user?.role === "seller" 
+                      ? "/seller-dashboard" 
+                      : "/buyer-dashboard";
+                    navigate(dashboardPath);
                   }}
                   className="w-full text-sm text-center text-purple-600 hover:text-purple-700 dark:text-purple-400 font-medium"
                 >

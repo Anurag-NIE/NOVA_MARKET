@@ -1,3 +1,5 @@
+# NOVA_MARKET
+
 # NovoMarket - Modern E-commerce Marketplace
 
 A full-stack e-commerce marketplace built with React and FastAPI, featuring real-time messaging, payment processing, and a modern design system.

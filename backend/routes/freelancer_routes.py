@@ -10,14 +10,24 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 from bson import ObjectId
 import os
+import logging
 from motor.motor_asyncio import AsyncIOMotorClient
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
-# Database connection
-MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
-client = AsyncIOMotorClient(MONGODB_URL)
-db = client.novomarket
+# Database connection - Use centralized config
+from config import settings
+
+MONGODB_URL = settings.MONGO_URL
+DB_NAME = settings.DB_NAME  # This will be 'MarketPlace' by default
+
+# Create database connection
+client = AsyncIOMotorClient(MONGODB_URL, serverSelectionTimeoutMS=5000)
+db = client[DB_NAME]
+
+logger.info(f"✅ Freelancer routes connected to database: {DB_NAME}")
+logger.info(f"✅ MongoDB URL: {MONGODB_URL}")
 
 # ==================== MODELS ====================
 
@@ -25,13 +35,16 @@ class FreelancerProfileCreate(BaseModel):
     title: str
     bio: str
     skills: List[str]
-    categories: List[str]
+    categories: List[str] = []
     experience_years: int
     hourly_rate: float
+    portfolio_url: Optional[str] = None
     education: Optional[List[dict]] = []
     certifications: Optional[List[dict]] = []
     portfolio: Optional[List[dict]] = []
     languages: Optional[List[str]] = ["English"]
+    location: Optional[str] = None
+    website: Optional[str] = None
     availability: Optional[str] = "available"
 
 class ServiceRequestCreate(BaseModel):
@@ -53,39 +66,53 @@ class ProposalCreate(BaseModel):
 
 # ==================== AUTH HELPER ====================
 
-async def get_current_user(authorization: str = Header(None)):
-    """Extract user from Authorization header"""
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Authorization header missing")
+# Import proper auth utility
+try:
+    from utils.auth_utils import get_current_user as auth_get_current_user
+    from models import User
     
-    try:
-        # Extract token from "Bearer <token>"
-        token = authorization.replace("Bearer ", "")
-        
-        # TODO: Replace with your actual JWT verification
-        # For now, decode the user info from token or use a mock
-        # This is where you'd normally verify JWT and get user_id
-        
-        # Mock implementation - replace with actual JWT decode
-        user = await db.users.find_one({"token": token})
-        if not user:
-            # Fallback: try to get from user collection
-            # For development, you can return a mock user
-            return {
-                "id": "temp_user_id",  # Replace with actual user ID from JWT
-                "email": "user@example.com",
-                "role": "seller"
-            }
-        
+    async def get_current_user(authorization: str = Header(None)) -> dict:
+        """Extract user from Authorization header using proper JWT verification"""
+        # Use the proper auth utility
+        user = await auth_get_current_user(authorization)
+        # Convert User model to dict for compatibility
         return {
-            "id": str(user.get("_id", "unknown")),
-            "email": user.get("email", ""),
-            "role": user.get("role", "seller")
+            "id": user.id,
+            "email": user.email,
+            "role": user.role,
+            "name": user.name
         }
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Invalid authentication: {str(e)}")
+except ImportError:
+    # Fallback if auth_utils is not available
+    from fastapi import Header
+    
+    async def get_current_user(authorization: str = Header(None)):
+        """Fallback auth - extract user from Authorization header"""
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authorization header missing")
+        
+        try:
+            token = authorization.replace("Bearer ", "")
+            # Try to find user by token in database
+            user = await db.users.find_one({"token": token})
+            if not user:
+                raise HTTPException(status_code=401, detail="Invalid token")
+            
+            return {
+                "id": str(user.get("_id", "")),
+                "email": user.get("email", ""),
+                "role": user.get("role", "seller"),
+                "name": user.get("name", "")
+            }
+        except Exception as e:
+            raise HTTPException(status_code=401, detail=f"Invalid authentication: {str(e)}")
 
 # ==================== FREELANCER PROFILE ROUTES ====================
+
+@router.options("/freelancer/profile")
+async def options_profile():
+    """Handle OPTIONS request for CORS preflight"""
+    return {"message": "OK"}
 
 @router.post("/freelancer/profile")
 async def create_or_update_profile(
@@ -94,40 +121,156 @@ async def create_or_update_profile(
 ):
     """Create or update freelancer profile"""
     try:
-        profile_data = profile.dict()
+        # Validate current_user
+        if not current_user or "id" not in current_user:
+            logger.error("Invalid user authentication - current_user missing or invalid")
+            raise HTTPException(status_code=401, detail="Invalid user authentication")
+        
+        logger.info(f"Saving profile for user: {current_user.get('id')}, role: {current_user.get('role')}")
+        
+        # Convert Pydantic model to dict, handling all fields
+        profile_data = profile.model_dump(exclude_none=True)
+        logger.info(f"Profile data received: {list(profile_data.keys())}")
+        
+        # Ensure required fields exist
+        if not profile_data.get("title"):
+            raise HTTPException(status_code=400, detail="Professional title is required")
+        if not profile_data.get("bio"):
+            raise HTTPException(status_code=400, detail="Bio is required")
+        if not profile_data.get("skills") or len(profile_data.get("skills", [])) == 0:
+            raise HTTPException(status_code=400, detail="At least one skill is required")
+        if not profile_data.get("hourly_rate") or profile_data.get("hourly_rate", 0) <= 0:
+            raise HTTPException(status_code=400, detail="Valid hourly rate is required")
+        
         profile_data["user_id"] = current_user["id"]
         profile_data["updated_at"] = datetime.now(timezone.utc)
+        
+        # Ensure arrays are properly formatted
+        if "skills" in profile_data and not isinstance(profile_data["skills"], list):
+            profile_data["skills"] = []
+        if "categories" in profile_data and not isinstance(profile_data["categories"], list):
+            profile_data["categories"] = []
+        if "languages" in profile_data and not isinstance(profile_data["languages"], list):
+            profile_data["languages"] = ["English"]
+        
+        # Convert datetime objects to ISO strings for MongoDB storage
+        if isinstance(profile_data.get("updated_at"), datetime):
+            profile_data["updated_at"] = profile_data["updated_at"].isoformat()
         
         existing = await db.freelancer_profiles.find_one({
             "user_id": current_user["id"]
         })
         
         if existing:
-            await db.freelancer_profiles.update_one(
+            logger.info(f"Updating existing profile for user: {current_user['id']}")
+            # Update existing profile - preserve created_at and stats
+            update_data = {**profile_data}
+            # Don't overwrite stats unless explicitly provided
+            if "rating" not in update_data:
+                update_data.pop("rating", None)
+            if "total_jobs" not in update_data:
+                update_data.pop("total_jobs", None)
+            if "total_earnings" not in update_data:
+                update_data.pop("total_earnings", None)
+            # Preserve created_at
+            if "created_at" in existing:
+                update_data.pop("created_at", None)
+            
+            logger.info(f"Updating profile with data keys: {list(update_data.keys())}")
+            
+            result = await db.freelancer_profiles.update_one(
                 {"user_id": current_user["id"]},
-                {"$set": profile_data}
+                {"$set": update_data}
             )
+            
+            logger.info(f"✅ Update result: matched={result.matched_count}, modified={result.modified_count}")
+            
+            if result.matched_count == 0:
+                logger.warning(f"⚠️ No profile found to update for user: {current_user['id']}")
+                raise HTTPException(status_code=404, detail="Profile not found for update")
+            
+            # Fetch updated profile
+            updated = await db.freelancer_profiles.find_one({
+                "user_id": current_user["id"]
+            })
+            if updated:
+                updated["id"] = str(updated["_id"])
+                # Convert ObjectId to string for JSON serialization
+                if "_id" in updated:
+                    updated["_id"] = str(updated["_id"])
+            
+            logger.info(f"✅ Profile successfully updated in database")
             return {
                 "message": "Profile updated successfully",
-                "profile_id": str(existing["_id"]),
-                "profile": profile_data
+                "profile_id": str(updated["_id"]) if updated else None,
+                "profile": updated
             }
         else:
-            profile_data["created_at"] = datetime.now(timezone.utc)
+            logger.info(f"Creating new profile for user: {current_user['id']}")
+            profile_data["created_at"] = datetime.now(timezone.utc).isoformat()
             profile_data["rating"] = 0.0
             profile_data["total_jobs"] = 0
             profile_data["total_earnings"] = 0.0
             
-            result = await db.freelancer_profiles.insert_one(profile_data)
-            return {
-                "message": "Profile created successfully",
-                "profile_id": str(result.inserted_id),
-                "profile": profile_data
-            }
+            logger.info(f"Inserting profile with data keys: {list(profile_data.keys())}")
+            logger.info(f"Skills count: {len(profile_data.get('skills', []))}")
+            logger.info(f"Categories count: {len(profile_data.get('categories', []))}")
+            logger.info(f"Database: {DB_NAME}, Collection: freelancer_profiles")
+            
+            # Verify database connection before insert
+            try:
+                await client.admin.command('ping')
+                logger.info("✅ Database connection verified")
+            except Exception as ping_err:
+                logger.error(f"❌ Database connection failed: {ping_err}")
+                raise HTTPException(status_code=500, detail=f"Database connection failed: {str(ping_err)}")
+            
+            # Insert profile
+            try:
+                result = await db.freelancer_profiles.insert_one(profile_data)
+                logger.info(f"✅ Insert operation completed, inserted_id: {result.inserted_id}")
+                
+                if not result.inserted_id:
+                    raise HTTPException(status_code=500, detail="Failed to insert profile into database - no ID returned")
+                
+                # Verify the insert by fetching the document
+                created = await db.freelancer_profiles.find_one({"_id": result.inserted_id})
+                if not created:
+                    raise HTTPException(status_code=500, detail="Profile was inserted but could not be retrieved")
+                
+                # Count total profiles in collection to verify
+                total_count = await db.freelancer_profiles.count_documents({})
+                logger.info(f"✅ Total profiles in collection after insert: {total_count}")
+                
+                # Convert ObjectId to string for JSON serialization
+                created["id"] = str(created["_id"])
+                created["_id"] = str(created["_id"])
+                
+                logger.info(f"✅ Profile successfully saved to database {DB_NAME} with ID: {created['id']}")
+                return {
+                    "message": "Profile created successfully",
+                    "profile_id": str(result.inserted_id),
+                    "profile": created
+                }
+            except Exception as insert_err:
+                logger.error(f"❌ Database insert error: {insert_err}")
+                import traceback
+                logger.error(traceback.format_exc())
+                raise HTTPException(status_code=500, detail=f"Database insert failed: {str(insert_err)}")
     
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"Error saving profile: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error saving profile: {str(e)}")
+        import traceback
+        error_trace = traceback.format_exc()
+        logger.error(f"❌ Error saving profile: {str(e)}")
+        logger.error(f"Traceback: {error_trace}")
+        print(f"❌ Error saving profile: {str(e)}")
+        print(f"Traceback: {error_trace}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error saving profile: {str(e)}"
+        )
 
 @router.get("/freelancer/profile")
 async def get_own_profile(current_user: dict = Depends(get_current_user)):
@@ -140,8 +283,14 @@ async def get_own_profile(current_user: dict = Depends(get_current_user)):
         if not profile:
             raise HTTPException(status_code=404, detail="Profile not found")
         
-        profile["_id"] = str(profile["_id"])
-        return profile
+        # Ensure id field exists
+        if "_id" in profile:
+            profile["id"] = str(profile["_id"])
+            profile["_id"] = str(profile["_id"])
+        elif "id" not in profile:
+            profile["id"] = str(profile.get("_id", ""))
+        
+        return {"profile": profile}
     except HTTPException:
         raise
     except Exception as e:
@@ -156,8 +305,14 @@ async def get_freelancer_profile(user_id: str):
         if not profile:
             raise HTTPException(status_code=404, detail="Profile not found")
         
-        profile["_id"] = str(profile["_id"])
-        return profile
+        # Ensure id field exists
+        if "_id" in profile:
+            profile["id"] = str(profile["_id"])
+            profile["_id"] = str(profile["_id"])
+        elif "id" not in profile:
+            profile["id"] = str(profile.get("_id", ""))
+        
+        return {"profile": profile}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching profile: {str(e)}")
 
@@ -221,7 +376,7 @@ async def create_service_request(
 ):
     """Create a new service request (buyer posts work)"""
     try:
-        request_data = request.dict()
+        request_data = request.model_dump()
         request_data["buyer_id"] = current_user["id"]
         request_data["buyer_email"] = current_user.get("email", "")
         request_data["status"] = "open"
@@ -345,15 +500,22 @@ async def submit_proposal(
 ):
     """Submit a proposal for a service request"""
     try:
+        print(f"📝 Received proposal data: {proposal.model_dump()}")
+        print(f"👤 User: {current_user}")
+        
         if not ObjectId.is_valid(proposal.request_id):
-            raise HTTPException(status_code=400, detail="Invalid request ID")
+            print(f"❌ Invalid request ID: {proposal.request_id}")
+            raise HTTPException(status_code=400, detail="Invalid request ID format")
         
         request = await db.service_requests.find_one({
             "_id": ObjectId(proposal.request_id)
         })
         
         if not request:
+            print(f"❌ Request not found: {proposal.request_id}")
             raise HTTPException(status_code=404, detail="Service request not found")
+        
+        print(f"✅ Found request: {request.get('title')}")
         
         if request["status"] != "open":
             raise HTTPException(status_code=400, detail="Request is no longer open")
@@ -364,12 +526,15 @@ async def submit_proposal(
         })
         
         if existing:
-            raise HTTPException(status_code=400, detail="You already submitted a proposal")
+            raise HTTPException(status_code=400, detail="You already submitted a proposal for this request")
         
-        proposal_data = proposal.dict()
+        proposal_data = proposal.model_dump()
         proposal_data["freelancer_id"] = current_user["id"]
+        proposal_data["freelancer_email"] = current_user.get("email", "")
         proposal_data["status"] = "pending"
         proposal_data["created_at"] = datetime.now(timezone.utc)
+        
+        print(f"💾 Saving proposal: {proposal_data}")
         
         result = await db.proposals.insert_one(proposal_data)
         
@@ -377,6 +542,8 @@ async def submit_proposal(
             {"_id": ObjectId(proposal.request_id)},
             {"$inc": {"proposals_count": 1}}
         )
+        
+        print(f"✅ Proposal saved successfully: {result.inserted_id}")
         
         return {
             "message": "Proposal submitted successfully",
@@ -386,8 +553,11 @@ async def submit_proposal(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error submitting proposal: {str(e)}")
+        print(f"❌ Error submitting proposal: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error submitting proposal: {str(e)}")
+
 
 @router.get("/proposals/request/{request_id}")
 async def get_request_proposals(

@@ -8,6 +8,9 @@ const api = axios.create({
   baseURL: API_URL,
   headers: {
     "Content-Type": "application/json",
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
   },
   timeout: 30000,
 });
@@ -64,7 +67,55 @@ export const serviceRequestAPI = {
   getById: (id) => api.get(`/service-requests/${id}`),
   update: (id, data) => api.put(`/service-requests/${id}`, data),
   delete: (id) => api.delete(`/service-requests/${id}`),
-  getMy: () => api.get("/service-requests/my-requests"),
+  getMy: () => api.get("/service-requests", { params: {} }), // Buyers see their own
+  getProposals: (requestId) => api.get(`/service-requests/${requestId}/proposals`),
+  acceptProposal: (requestId, proposalId) => api.post(`/service-requests/${requestId}/proposals/${proposalId}/accept`),
+  completeRequest: (requestId) => api.post(`/service-requests/${requestId}/complete`),
+  book: (requestId) => api.post(`/service-requests/${requestId}/book`), // Sellers book service requests
+  getMyBookings: () => api.get("/service-requests/bookings/my-bookings"), // Sellers view their bookings
+};
+
+// Proposal APIs
+export const proposalAPI = {
+  submit: (requestId, data) => api.post(`/service-requests/${requestId}/proposals`, data),
+  getMy: () => api.get("/my-proposals"),
+  getByRequest: (requestId) => api.get(`/service-requests/${requestId}/proposals`),
+};
+
+// Product Marketplace APIs
+export const productAPI = {
+  getAll: (params) => api.get("/products", { params }),
+  getById: (id) => api.get(`/products/${id}`),
+  add: (data) => api.post("/products/add", data),
+  update: (id, data) => api.put(`/products/${id}`, data),
+  delete: (id) => api.delete(`/products/${id}`),
+  addToCart: (data) => api.post("/products/cart/add", data),
+  getCart: () => api.get("/products/cart"),
+  removeFromCart: (itemId) => api.delete(`/products/cart/${itemId}`),
+  getOrders: () => api.get("/products/orders"),
+};
+
+// Service Marketplace APIs
+export const serviceAPI = {
+  getAll: (params) => api.get("/services", { params }),
+  getById: (id) => api.get(`/services/${id}`),
+  add: (data) => api.post("/services/add", data),
+  update: (id, data) => api.put(`/services/${id}`, data),
+  delete: (id) => api.delete(`/services/${id}`),
+  createBooking: (data) => api.post("/services/bookings/create", data),
+  getMyBookings: () => api.get("/services/bookings/my-bookings"),
+  updateBookingStatus: (bookingId, status) => api.put(`/services/bookings/${bookingId}/status`, { status }, { params: { status } }),
+};
+
+// Unified Checkout API
+export const checkoutAPI = {
+  createSession: (data) => api.post("/checkout/create-session", data),
+};
+
+// Review APIs
+export const reviewAPI = {
+  create: (data) => api.post("/reviews", data),
+  getByItem: (itemId, itemType) => api.get("/reviews", { params: { item_id: itemId, item_type: itemType } }),
 };
 
 // Booking APIs
@@ -99,8 +150,8 @@ export const orderAPI = {
 // Notification APIs
 export const notificationAPI = {
   getAll: (params) => api.get("/notifications", { params }),
-  markAsRead: (id) => api.put(`/notifications/${id}/read`),
-  markAllAsRead: () => api.put("/notifications/read-all"),
+  markAsRead: (id) => api.post(`/notifications/${id}/mark-read`), // Fixed: POST not PUT
+  markAllAsRead: () => api.post("/notifications/mark-all-read"), // Fixed: POST not PUT
   delete: (id) => api.delete(`/notifications/${id}`),
   getUnreadCount: () => api.get("/notifications/unread-count"),
 };

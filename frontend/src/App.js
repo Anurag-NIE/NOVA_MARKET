@@ -14,6 +14,7 @@ const getUser = () => {
 // Components
 import Navbar from "./components/Navbar";
 import Home from "./pages/Home";
+import HomeDualMarketplace from "./pages/HomeDualMarketplace";
 import ListingDetail from "./pages/ListingDetail";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
@@ -25,11 +26,25 @@ import ChatPage from "./pages/ChatPage";
 import ServiceMarketplacePage from "./pages/ServiceMarketplacePage";
 import FreelancerProfileSetup from "./pages/FreelancerProfileSetup";
 import Cart from "./pages/Cart";
+import CartPage from "./pages/CartPage";
 import PostServiceRequest from "./pages/PostServiceRequest";
+import AddProduct from "./pages/AddProduct";
+import AddService from "./pages/AddService";
+
+// Product Marketplace Pages
+import ProductsPage from "./pages/ProductsPage";
+import ProductDetail from "./pages/ProductDetail";
+
+// Service Marketplace Pages
+import ServicesPage from "./pages/ServicesPage";
+import ServiceDetail from "./pages/ServiceDetail";
 
 // NEW: Freelancer/Service Request Pages
 import ViewServiceRequests from "./pages/ViewServiceRequests";
+import MyRequests from "./pages/MyRequests";
 import SubmitProposal from "./pages/SubmitProposal";
+import ServiceRequestDetail from "./pages/ServiceRequestDetail";
+import ManageProposals from "./pages/ManageProposals";
 
 function App() {
   const [user, setUser] = useState(null);
@@ -80,15 +95,24 @@ function App() {
 
   return (
     <div className="App min-h-screen bg-background">
+      <Toaster position="top-right" />
       <BrowserRouter>
         <Navbar user={user} setUser={setUser} />
         <Routes>
           {/* ============================================ */}
           {/* PUBLIC ROUTES */}
           {/* ============================================ */}
-          <Route path="/" element={<Home user={user} />} />
+          <Route path="/" element={<HomeDualMarketplace user={user} />} />
+          <Route path="/home-old" element={<Home user={user} />} />
           <Route path="/listing/:id" element={<ListingDetail user={user} />} />
-
+          
+          {/* Product Marketplace Routes */}
+          <Route path="/products" element={<ProductsPage user={user} />} />
+          <Route path="/product/:id" element={<ProductDetail user={user} />} />
+          
+          {/* Service Marketplace Routes */}
+          <Route path="/services" element={<ServicesPage user={user} />} />
+          <Route path="/service/:id" element={<ServiceDetail user={user} />} />
           {/* ============================================ */}
           {/* AUTH ROUTES */}
           {/* ============================================ */}
@@ -102,7 +126,6 @@ function App() {
               user ? <Navigate to="/" /> : <Register setUser={setUser} />
             }
           />
-
           {/* ============================================ */}
           {/* BUYER ROUTES */}
           {/* ============================================ */}
@@ -114,7 +137,6 @@ function App() {
               </PrivateRoute>
             }
           />
-
           {/* Buyer: Post Service Request */}
           <Route
             path="/post-service-request"
@@ -124,7 +146,6 @@ function App() {
               </PrivateRoute>
             }
           />
-
           {/* Buyer: View My Posted Requests */}
           <Route
             path="/my-requests"
@@ -134,17 +155,33 @@ function App() {
               </PrivateRoute>
             }
           />
-
+          {/* Buyer: Manage Proposals for a Request */}
+          <Route
+            path="/manage-proposals/:id"
+            element={
+              <PrivateRoute allowedRoles={["buyer"]}>
+                <ManageProposals user={user} />
+              </PrivateRoute>
+            }
+          />
           {/* Buyer: Cart */}
           <Route
             path="/cart"
             element={
               <PrivateRoute allowedRoles={["buyer"]}>
-                <Cart user={user} />
+                <CartPage user={user} />
               </PrivateRoute>
             }
           />
-
+          {/* Buyer: Dashboard */}
+          <Route
+            path="/buyer-dashboard"
+            element={
+              <PrivateRoute allowedRoles={["buyer"]}>
+                <BuyerDashboard user={user} />
+              </PrivateRoute>
+            }
+          />
           {/* ============================================ */}
           {/* SELLER/FREELANCER ROUTES */}
           {/* ============================================ */}
@@ -156,7 +193,6 @@ function App() {
               </PrivateRoute>
             }
           />
-
           {/* Seller: Setup Freelancer Profile */}
           <Route
             path="/freelancer/profile"
@@ -166,7 +202,24 @@ function App() {
               </PrivateRoute>
             }
           />
-
+          {/* Seller: Add Product */}
+          <Route
+            path="/add-product"
+            element={
+              <PrivateRoute allowedRoles={["seller"]}>
+                <AddProduct user={user} />
+              </PrivateRoute>
+            }
+          />
+          {/* Seller: Add Service */}
+          <Route
+            path="/add-service"
+            element={
+              <PrivateRoute allowedRoles={["seller"]}>
+                <AddService user={user} />
+              </PrivateRoute>
+            }
+          />
           {/* Seller: Browse Service Requests */}
           <Route
             path="/browse-requests"
@@ -176,8 +229,7 @@ function App() {
               </PrivateRoute>
             }
           />
-
-          {/* Seller: Submit Proposal */}
+          {/* Seller: Submit Proposal
           <Route
             path="/submit-proposal/:requestId"
             element={
@@ -185,8 +237,15 @@ function App() {
                 <SubmitProposal user={user} />
               </PrivateRoute>
             }
-          />
+          /> */}
+          // In your routes:
+          <Route path="/my-requests" element={<MyRequests />} />
 
+          <Route
+            path="/submit-proposal/:requestId"
+            element={<SubmitProposal user={user} />}
+          />
+          
           {/* ============================================ */}
           {/* SHARED/PUBLIC PROFILE ROUTES */}
           {/* ============================================ */}
@@ -195,7 +254,6 @@ function App() {
             path="/freelancer/:userId"
             element={<FreelancerProfileSetup user={user} viewMode={true} />}
           />
-
           {/* ============================================ */}
           {/* SHARED AUTHENTICATED ROUTES */}
           {/* ============================================ */}
@@ -208,7 +266,15 @@ function App() {
               </PrivateRoute>
             }
           />
-
+          {/* Service Request Detail - Public for sellers, buyers see their own */}
+          <Route
+            path="/service-request/:id"
+            element={
+              <PrivateRoute>
+                <ServiceRequestDetail user={user} />
+              </PrivateRoute>
+            }
+          />
           {/* Checkout */}
           <Route
             path="/checkout/:orderId"
@@ -218,10 +284,8 @@ function App() {
               </PrivateRoute>
             }
           />
-
           {/* Payment Success */}
           <Route path="/payment-success" element={<PaymentSuccess />} />
-
           {/* Chat */}
           <Route
             path="/chat"
@@ -231,7 +295,6 @@ function App() {
               </PrivateRoute>
             }
           />
-
           {/* ============================================ */}
           {/* 404 NOT FOUND */}
           {/* ============================================ */}

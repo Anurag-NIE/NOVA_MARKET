@@ -20,6 +20,8 @@ import {
   Search,
   Settings,
   UserCircle,
+  Package,
+  ShoppingBag,
 } from "lucide-react";
 import { logout } from "../utils/auth";
 import NotificationBell from "./NotificationBell";
@@ -58,36 +60,112 @@ const Navbar = ({ user, setUser }) => {
           className="font-bold text-xl flex items-center gap-2"
           data-testid="logo-link"
         >
-          <div className="w-8 h-8 bg-gradient-to-br from-purple-600 to-blue-600 rounded-lg flex items-center justify-center">
+          <div className="w-8 h-8 bg-gradient-to-br from-purple-600 to-blue-600 rounded-lg flex items-center justify-center shadow-lg">
             <span className="text-white font-bold text-sm">N</span>
           </div>
-          <span className="bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
-            NovoMarket
+          <span className="bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent font-bold text-lg">
+            NovaMarket
           </span>
         </Link>
 
-        {/* Main Navigation */}
+        {/* Main Navigation - Role Based */}
         {user && (
           <nav className="hidden md:flex items-center gap-1 ml-6">
-            <Button
-              variant="ghost"
-              onClick={() => navigate("/")}
-              className="flex items-center gap-2"
-            >
-              <Search size={18} />
-              <span>Browse</span>
-            </Button>
-
-            <Button
-              variant="ghost"
-              onClick={() => navigate("/marketplace")}
-              className="flex items-center gap-2"
-            >
-              <Briefcase size={18} />
-              <span>
-                {user.role === "buyer" ? "Post Project" : "Find Work"}
-              </span>
-            </Button>
+            {user.role === "buyer" ? (
+              <>
+                <Button
+                  variant="ghost"
+                  onClick={() => navigate("/products")}
+                  className="flex items-center gap-2"
+                >
+                  <Package size={18} />
+                  <span>Products</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => navigate("/services")}
+                  className="flex items-center gap-2"
+                >
+                  <Briefcase size={18} />
+                  <span>Services</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => navigate("/cart")}
+                  className="flex items-center gap-2"
+                >
+                  <ShoppingBag size={18} />
+                  <span>Cart</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => navigate("/buyer-dashboard")}
+                  className="flex items-center gap-2"
+                >
+                  <LayoutDashboard size={18} />
+                  <span>Dashboard</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    navigate("/buyer-dashboard");
+                    // Use setTimeout to ensure navigation completes first
+                    setTimeout(() => {
+                      // Find and click the service-requests tab
+                      const event = new CustomEvent('switchTab', { detail: 'service-requests' });
+                      window.dispatchEvent(event);
+                    }, 100);
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <Briefcase size={18} />
+                  <span>My Service Requests</span>
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="ghost"
+                  onClick={() => navigate("/products")}
+                  className="flex items-center gap-2"
+                >
+                  <Package size={18} />
+                  <span>Products</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => navigate("/services")}
+                  className="flex items-center gap-2"
+                >
+                  <Briefcase size={18} />
+                  <span>Services</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => navigate("/seller-dashboard")}
+                  className="flex items-center gap-2"
+                >
+                  <LayoutDashboard size={18} />
+                  <span>Dashboard</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    navigate("/seller-dashboard");
+                    // Use setTimeout to ensure navigation completes first
+                    setTimeout(() => {
+                      // Find and click the service-requests tab
+                      const event = new CustomEvent('switchTab', { detail: 'service-requests' });
+                      window.dispatchEvent(event);
+                    }, 100);
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <Briefcase size={18} />
+                  <span>Service Requests</span>
+                </Button>
+              </>
+            )}
           </nav>
         )}
 
@@ -107,23 +185,6 @@ const Navbar = ({ user, setUser }) => {
 
               {/* Notifications */}
               <NotificationBell />
-
-              {/* Dashboard Link */}
-              <Button
-                variant="ghost"
-                onClick={() =>
-                  navigate(
-                    user.role === "seller"
-                      ? "/seller-dashboard"
-                      : "/buyer-dashboard"
-                  )
-                }
-                data-testid="dashboard-button"
-                className="hidden md:flex items-center gap-2"
-              >
-                <LayoutDashboard size={18} />
-                Dashboard
-              </Button>
 
               {/* User Menu */}
               <DropdownMenu>

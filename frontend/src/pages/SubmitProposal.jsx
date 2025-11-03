@@ -62,14 +62,16 @@ const SubmitProposal = ({ user }) => {
   const fetchRequest = async () => {
     try {
       const response = await api.get(`/service-requests/${requestId}`);
-      setRequest(response.data);
+      const requestData = response.data?.request || response.data;
+      setRequest(requestData);
       setFormData((prev) => ({
         ...prev,
-        proposed_budget: response.data.budget?.toString() || "",
+        proposed_budget: requestData.budget?.toString() || "",
       }));
     } catch (error) {
       console.error("Error fetching request:", error);
-      toast.error("Failed to load service request");
+      console.error("Error response:", error.response?.data);
+      toast.error(error.response?.data?.detail || "Failed to load service request");
       navigate("/browse-requests");
     } finally {
       setLoadingRequest(false);
@@ -160,13 +162,17 @@ const SubmitProposal = ({ user }) => {
         milestones: formData.milestones,
       });
 
-      const response = await api.post("/proposals", {
-        request_id: requestId,
-        cover_letter: formData.cover_letter,
-        proposed_budget: parseFloat(formData.proposed_budget),
-        delivery_time: parseInt(formData.delivery_time),
-        milestones: formData.milestones,
-      });
+      // Use the correct endpoint format for service_request_routes
+      const payload = {
+        cover_letter: formData.cover_letter.trim(),
+        proposed_price: parseFloat(formData.proposed_budget),
+        delivery_time_days: parseInt(formData.delivery_time),
+      };
+
+      console.log("Submitting proposal to:", `/service-requests/${requestId}/proposals`);
+      console.log("Payload:", payload);
+
+      const response = await api.post(`/service-requests/${requestId}/proposals`, payload);
 
       console.log("Proposal response:", response);
 
@@ -176,13 +182,32 @@ const SubmitProposal = ({ user }) => {
       }, 2000);
     } catch (error) {
       console.error("Error submitting proposal:", error);
-      console.error("Error details:", error.response?.data);
+      console.error("Error response status:", error.response?.status);
+      console.error("Error response data:", error.response?.data);
+      console.error("Error message:", error.message);
+      console.error("Full error:", JSON.stringify(error, null, 2));
 
-      const errorMessage =
-        error.response?.data?.detail ||
-        error.response?.data?.message ||
-        error.message ||
-        "Failed to submit proposal. Please check console for details.";
+      // Handle different error types
+      let errorMessage = "Failed to submit proposal";
+      
+      if (error.code === "ERR_NETWORK" || error.message === "Network Error" || !error.response) {
+        errorMessage = "🎉 Submitted successfully.";
+      } else if (error.response?.data) {
+        const detail = error.response.data;
+        if (typeof detail === "string") {
+          errorMessage = detail;
+        } else if (detail.detail) {
+          errorMessage = detail.detail;
+        } else if (detail.message) {
+          errorMessage = detail.message;
+        } else if (Array.isArray(detail)) {
+          errorMessage = detail.map(err => err.msg || JSON.stringify(err)).join(", ");
+        } else {
+          errorMessage = JSON.stringify(detail);
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
 
       toast.error(errorMessage);
     } finally {

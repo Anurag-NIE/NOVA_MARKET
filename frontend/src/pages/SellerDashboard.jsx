@@ -189,7 +189,8 @@
 
 
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import { Card, CardHeader, CardContent } from "../components/ui/card";
 import {
@@ -218,11 +219,12 @@ import {
 } from "../components/ui/select";
 import ListingCard from "../components/ListingCard";
 import AvailabilitySettings from "../components/AvailabilitySettings";
-import api from "../utils/api";
+import api, { serviceRequestAPI } from "../utils/api";
 import { toast } from "sonner";
 import {
   Plus,
   Package,
+  Briefcase,
   DollarSign,
   Eye,
   TrendingUp,
@@ -254,10 +256,13 @@ const categories = [
 ];
 
 const SellerDashboard = ({ user }) => {
+  const navigate = useNavigate();
   const [listings, setListings] = useState([]);
   const [orders, setOrders] = useState([]);
   const [bookings, setBookings] = useState([]);
+  const [serviceRequests, setServiceRequests] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("listings");
   const [showAddListing, setShowAddListing] = useState(false);
   const [showAvailability, setShowAvailability] = useState(false);
   const [selectedService, setSelectedService] = useState(null);
@@ -271,31 +276,186 @@ const SellerDashboard = ({ user }) => {
     type: "product",
   });
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
-      const [listingsRes, ordersRes, bookingsRes] = await Promise.all([
-        api.get("/listings"),
-        api.get("/orders"),
-        api.get("/bookings/my-bookings"),
+      setLoading(true);
+      const timestamp = new Date().getTime();
+      
+      const [listingsRes, ordersRes, bookingsRes, productsRes, servicesRes, serviceBookingsRes, requestsRes] = await Promise.all([
+        api.get("/listings", { params: { _t: timestamp } }).catch(() => ({ data: [] })),
+        api.get("/orders", { params: { _t: timestamp } }).catch(() => ({ data: [] })),
+        api.get("/bookings/my-bookings", { params: { _t: timestamp } }).catch(() => ({ data: { bookings: [] } })),
+        api.get("/products", { params: { _t: timestamp } }).catch((e) => {
+          console.error("Error fetching products:", e);
+          return { data: [] };
+        }),
+        api.get("/services", { params: { _t: timestamp } }).catch((e) => {
+          console.error("Error fetching services:", e);
+          return { data: [] };
+        }),
+        api.get("/services/bookings/my-bookings", { params: { _t: timestamp } }).catch(() => ({ data: { bookings: [] } })),
+        serviceRequestAPI.getAll({ _t: timestamp }).catch((e) => {
+          console.error("❌ Error fetching service requests:", e);
+          console.error("Error response:", e.response);
+          console.error("Error details:", e.response?.data);
+          console.error("Error status:", e.response?.status);
+          console.error("Error message:", e.message);
+          if (e.response?.status === 401) {
+            console.error("⚠️ Authentication error - user may need to re-login");
+          }
+          return { data: { requests: [] } };
+        }),
       ]);
 
-      const myListings = listingsRes.data.filter(
+      const myListings = (Array.isArray(listingsRes.data) ? listingsRes.data : []).filter(
         (p) => p.seller_id === user.id
       );
-      setListings(myListings);
-      setOrders(ordersRes.data);
-      setBookings(bookingsRes.data.bookings || []);
+      
+      // Filter products and services by seller
+      const myProducts = (Array.isArray(productsRes.data) ? productsRes.data : []).filter(
+        (p) => p.seller_id === user.id
+      );
+      const myServices = (Array.isArray(servicesRes.data) ? servicesRes.data : []).filter(
+        (s) => s.seller_id === user.id
+      );
+      
+      // Combine all listings (old + new)
+      setListings([
+        ...myListings, 
+        ...(myProducts.map(p => ({...p, type: 'product', id: p.id || p._id}))), 
+        ...(myServices.map(s => ({...s, type: 'service', id: s.id || s._id})))
+      ]);
+      
+      // Fetch product orders - backend returns { orders: [], total: number }
+      const productOrdersRes = await api.get("/products/orders", { params: { _t: timestamp } }).catch(() => ({ data: { orders: [], total: 0 } }));
+      
+      // Handle different response formats for orders
+      let ordersData = [];
+      if (Array.isArray(ordersRes.data)) {
+        ordersData = ordersRes.data;
+      } else if (ordersRes.data && Array.isArray(ordersRes.data.orders)) {
+        ordersData = ordersRes.data.orders;
+      } else if (ordersRes.data && ordersRes.data.data && Array.isArray(ordersRes.data.data.orders)) {
+        ordersData = ordersRes.data.data.orders;
+      }
+      
+      // Handle product orders response - can be { orders: [] } or just array
+      let productOrdersData = [];
+      if (productOrdersRes.data) {
+        if (Array.isArray(productOrdersRes.data)) {
+          productOrdersData = productOrdersRes.data;
+        } else if (Array.isArray(productOrdersRes.data.orders)) {
+          productOrdersData = productOrdersRes.data.orders;
+        } else if (productOrdersRes.data.data && Array.isArray(productOrdersRes.data.data)) {
+          productOrdersData = productOrdersRes.data.data;
+        }
+      }
+      
+      // Combine all orders and filter by seller
+      const allOrders = [...ordersData, ...productOrdersData].filter(order => {
+        if (!order) return false;
+        return order.seller_id === user.id || order.provider_id === user.id;
+      });
+      
+      console.log("📊 Orders fetched:", {
+        totalFound: allOrders.length,
+        ordersData: ordersData.length,
+        productOrdersData: productOrdersData.length,
+        user_id: user.id,
+        sample: allOrders[0]
+      });
+      
+      setOrders(allOrders);
+      
+      // Combine bookings - filter by seller/provider
+      const bookingsData1 = Array.isArray(bookingsRes.data?.bookings) ? bookingsRes.data.bookings : [];
+      const bookingsData2 = Array.isArray(serviceBookingsRes.data?.bookings) ? serviceBookingsRes.data.bookings : [];
+      
+      // Filter bookings to ensure they belong to this seller/provider
+      const allBookings = [...bookingsData1, ...bookingsData2].filter(booking => {
+        return booking.provider_id === user.id || booking.seller_id === user.id || booking.freelancer_id === user.id;
+      });
+      
+      setBookings(allBookings);
+      
+          // Set service requests - clear first to avoid stale data
+          console.log("🔍 Service requests API response:", requestsRes);
+          console.log("🔍 Response data:", requestsRes.data);
+          console.log("🔍 Response structure:", {
+            hasRequests: !!requestsRes.data?.requests,
+            isArray: Array.isArray(requestsRes.data?.requests),
+            type: typeof requestsRes.data?.requests,
+            keys: requestsRes.data ? Object.keys(requestsRes.data) : []
+          });
+          
+          const requestsData = Array.isArray(requestsRes.data?.requests) ? requestsRes.data.requests : [];
+          console.log("✅ Parsed service requests data:", requestsData);
+          console.log("✅ Number of service requests:", requestsData.length);
+          
+          // Clear first to avoid stale data
+          setServiceRequests([]);
+          // Then set fresh data
+          setServiceRequests(requestsData);
+          
+          if (requestsData.length === 0) {
+            console.warn("⚠️ No service requests found. This could mean:");
+            console.warn("1. No requests exist in the database");
+            console.warn("2. All requests have status other than 'open'");
+            console.warn("3. API returned empty array");
+            console.warn("4. Authentication/authorization issue");
+            console.warn("5. Query filter is too restrictive");
+          }
     } catch (error) {
       console.error("Error fetching data:", error);
-      toast.error("Failed to load dashboard data");
+      let errorMessage = "Failed to load dashboard data";
+      const detail = error.response?.data?.detail;
+      if (detail) {
+        if (typeof detail === "string") {
+          errorMessage = detail;
+        } else if (Array.isArray(detail)) {
+          errorMessage = detail.map(err => typeof err === "string" ? err : err.msg || JSON.stringify(err)).join(", ");
+        } else if (typeof detail === "object") {
+          errorMessage = detail.msg || detail.message || JSON.stringify(detail);
+        }
+      }
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (user?.id) {
+      fetchData();
+    }
+    
+    // Listen for tab switch event from Navbar
+    const handleTabSwitch = (event) => {
+      if (event.detail === 'service-requests') {
+        setActiveTab('service-requests');
+        setTimeout(() => {
+          const tabs = document.querySelector('[role="tablist"]');
+          if (tabs) {
+            window.scrollTo({ top: tabs.offsetTop - 100, behavior: 'smooth' });
+          }
+        }, 100);
+      }
+    };
+    
+    window.addEventListener('switchTab', handleTabSwitch);
+    
+    // Refresh data every 30 seconds to keep it dynamic
+    const refreshInterval = setInterval(() => {
+      if (user?.id) {
+        fetchData();
+      }
+    }, 30000);
+    
+    return () => {
+      window.removeEventListener('switchTab', handleTabSwitch);
+      clearInterval(refreshInterval);
+    };
+  }, [user?.id, fetchData]);
 
   const handleAddListing = async (e) => {
     e.preventDefault();
@@ -340,7 +500,18 @@ const SellerDashboard = ({ user }) => {
       fetchData();
     } catch (error) {
       console.error("Error adding listing:", error);
-      toast.error(error.response?.data?.detail || "Failed to add listing");
+      let errorMessage = "Failed to add listing";
+      const detail = error.response?.data?.detail;
+      if (detail) {
+        if (typeof detail === "string") {
+          errorMessage = detail;
+        } else if (Array.isArray(detail)) {
+          errorMessage = detail.map(err => typeof err === "string" ? err : err.msg || JSON.stringify(err)).join(", ");
+        } else if (typeof detail === "object") {
+          errorMessage = detail.msg || detail.message || JSON.stringify(detail);
+        }
+      }
+      toast.error(errorMessage);
     }
   };
 
@@ -351,7 +522,18 @@ const SellerDashboard = ({ user }) => {
       fetchData();
     } catch (error) {
       console.error("Error completing booking:", error);
-      toast.error(error.response?.data?.detail || "Failed to complete booking");
+      let errorMessage = "Failed to complete booking";
+      const detail = error.response?.data?.detail;
+      if (detail) {
+        if (typeof detail === "string") {
+          errorMessage = detail;
+        } else if (Array.isArray(detail)) {
+          errorMessage = detail.map(err => typeof err === "string" ? err : err.msg || JSON.stringify(err)).join(", ");
+        } else if (typeof detail === "object") {
+          errorMessage = detail.msg || detail.message || JSON.stringify(detail);
+        }
+      }
+      toast.error(errorMessage);
     }
   };
 
@@ -360,24 +542,168 @@ const SellerDashboard = ({ user }) => {
     setShowAvailability(true);
   };
 
-  const totalRevenue = orders.reduce(
-    (sum, order) => sum + order.total_amount,
+  // Calculate total revenue from orders and bookings
+  const ordersRevenue = (Array.isArray(orders) ? orders : []).reduce(
+    (sum, order) => sum + (order?.total_amount || order?.amount || 0),
     0
   );
-  const totalViews = listings.reduce(
-    (sum, listing) => sum + (listing.reviews_count || 0),
+  const bookingsRevenue = (Array.isArray(bookings) ? bookings : []).reduce(
+    (sum, booking) => sum + (booking?.price || booking?.amount || 0),
     0
   );
-  const serviceListings = listings.filter((l) => l.type === "service");
+  const totalRevenue = ordersRevenue + bookingsRevenue;
+  
+  const totalViews = (Array.isArray(listings) ? listings : []).reduce(
+    (sum, listing) => sum + (listing?.views_count || listing?.reviews_count || 0),
+    0
+  );
+  const serviceListings = (Array.isArray(listings) ? listings : []).filter((l) => l.type === "service");
 
-  // Chart data
-  const chartData = [
-    { day: "Mon", sales: 1200, views: 4600 },
-    { day: "Tue", sales: 980, views: 5200 },
-    { day: "Wed", sales: 1400, views: 6100 },
-    { day: "Thu", sales: 900, views: 4300 },
-    { day: "Fri", sales: 1700, views: 7200 },
-  ];
+  // Calculate dynamic chart data from last 7 days
+  const getChartData = () => {
+    const today = new Date();
+    const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const last7Days = [];
+    
+    // Initialize data for last 7 days
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(today);
+      date.setDate(date.getDate() - i);
+      date.setHours(0, 0, 0, 0);
+      
+      last7Days.push({
+        day: daysOfWeek[date.getDay()],
+        date: date.toISOString().split('T')[0],
+        sales: 0,
+        views: 0
+      });
+    }
+    
+    console.log("📊 Chart calculation - Last 7 days:", last7Days.map(d => d.date));
+    console.log("📊 Chart calculation - Orders count:", orders?.length || 0);
+    
+    // Calculate sales from orders
+    if (Array.isArray(orders) && orders.length > 0) {
+      orders.forEach(order => {
+        const orderDate = order.created_at || order.timestamp;
+        const amount = order.total_amount || order.amount || 0;
+        
+        if (orderDate && amount > 0) {
+          try {
+            const date = new Date(orderDate);
+            if (!isNaN(date.getTime())) {
+              date.setHours(0, 0, 0, 0);
+              const dateStr = date.toISOString().split('T')[0];
+              
+              const dayData = last7Days.find(d => d.date === dateStr);
+              if (dayData) {
+                dayData.sales += amount;
+                console.log(`  ✅ Order matched: ${dateStr} - Added $${amount}`);
+              } else {
+                console.log(`  ⚠️ Order date ${dateStr} not in last 7 days range`);
+              }
+            }
+          } catch (e) {
+            console.error("Error parsing order date:", orderDate, e);
+          }
+        }
+      });
+    }
+    
+    // Calculate sales from bookings
+    if (Array.isArray(bookings) && bookings.length > 0) {
+      bookings.forEach(booking => {
+        const bookingDate = booking.start_time || booking.booked_at || booking.created_at;
+        const amount = booking.price || booking.amount || 0;
+        
+        if (bookingDate && amount > 0) {
+          try {
+            const date = new Date(bookingDate);
+            if (!isNaN(date.getTime())) {
+              date.setHours(0, 0, 0, 0);
+              const dateStr = date.toISOString().split('T')[0];
+              
+              const dayData = last7Days.find(d => d.date === dateStr);
+              if (dayData) {
+                dayData.sales += amount;
+                console.log(`  ✅ Booking matched: ${dateStr} - Added $${amount}`);
+              } else {
+                console.log(`  ⚠️ Booking date ${dateStr} not in last 7 days range`);
+              }
+            }
+          } catch (e) {
+            console.error("Error parsing booking date:", bookingDate, e);
+          }
+        }
+      });
+    }
+    
+    // Ensure minimum values for better visualization (if sales are very low, add small baseline)
+    last7Days.forEach(day => {
+      if (day.sales === 0) {
+        // This shouldn't happen with our test data, but add a safety check
+        console.warn(`⚠️ Day ${day.day} has zero sales - this should not happen!`);
+      }
+    });
+    
+    console.log("📊 Final chart data:", last7Days.map(d => `${d.day} (${d.date}): $${d.sales.toFixed(2)}`));
+    console.log("📊 Chart summary:", {
+      totalSales: last7Days.reduce((sum, d) => sum + d.sales, 0),
+      minDay: Math.min(...last7Days.map(d => d.sales)),
+      maxDay: Math.max(...last7Days.map(d => d.sales)),
+      avgDay: last7Days.reduce((sum, d) => sum + d.sales, 0) / last7Days.length
+    });
+    
+    // Calculate views (approximate from listings - using created_at as proxy)
+    if (Array.isArray(listings)) {
+      listings.forEach(listing => {
+        const listingDate = listing.created_at || listing.timestamp;
+        if (listingDate) {
+          const date = new Date(listingDate);
+          date.setHours(0, 0, 0, 0);
+          const dateStr = date.toISOString().split('T')[0];
+          
+          const dayData = last7Days.find(d => d.date === dateStr);
+          if (dayData) {
+            // Estimate views (you might want to track actual views separately)
+            dayData.views += 10; // Placeholder - replace with actual view count if available
+          }
+        }
+      });
+    }
+    
+    return last7Days;
+  };
+  
+  const chartData = getChartData();
+
+  const handleBookServiceRequest = async (requestId) => {
+    if (!requestId) {
+      toast.error("Invalid service request");
+      return;
+    }
+
+    try {
+      const response = await serviceRequestAPI.book(requestId);
+      toast.success(response.data?.message || "Service request booked successfully!");
+      // Refresh data to update the list
+      await fetchData();
+    } catch (error) {
+      console.error("Error booking service request:", error);
+      let errorMessage = "Failed to book service request";
+      const detail = error.response?.data?.detail;
+      if (detail) {
+        if (typeof detail === "string") {
+          errorMessage = detail;
+        } else if (Array.isArray(detail)) {
+          errorMessage = detail.map(err => typeof err === "string" ? err : err.msg || JSON.stringify(err)).join(", ");
+        } else if (typeof detail === "object") {
+          errorMessage = detail.msg || detail.message || JSON.stringify(detail);
+        }
+      }
+      toast.error(errorMessage);
+    }
+  };
 
   const getStatusColor = (status) => {
     const colors = {
@@ -385,6 +711,8 @@ const SellerDashboard = ({ user }) => {
       confirmed: "bg-blue-500",
       completed: "bg-green-500",
       cancelled: "bg-red-500",
+      open: "bg-green-500",
+      in_progress: "bg-blue-500",
     };
     return colors[status] || "bg-gray-500";
   };
@@ -405,131 +733,23 @@ const SellerDashboard = ({ user }) => {
             <h1 className="text-3xl font-semibold mb-2">Seller Dashboard</h1>
             <p className="text-muted-foreground">Welcome back, {user.name}!</p>
           </div>
-          <Dialog open={showAddListing} onOpenChange={setShowAddListing}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus size={18} className="mr-2" />
-                Add Listing
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Add New Listing</DialogTitle>
-              </DialogHeader>
-              <form onSubmit={handleAddListing} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="title">Title*</Label>
-                  <Input
-                    id="title"
-                    value={formData.title}
-                    onChange={(e) =>
-                      setFormData({ ...formData, title: e.target.value })
-                    }
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="description">Description*</Label>
-                  <Textarea
-                    id="description"
-                    value={formData.description}
-                    onChange={(e) =>
-                      setFormData({ ...formData, description: e.target.value })
-                    }
-                    required
-                    rows={4}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="price">Price (USD)*</Label>
-                    <Input
-                      id="price"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={formData.price}
-                      onChange={(e) =>
-                        setFormData({ ...formData, price: e.target.value })
-                      }
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="type">Type*</Label>
-                    <Select
-                      value={formData.type}
-                      onValueChange={(value) =>
-                        setFormData({ ...formData, type: value })
-                      }
-                      required
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="product">Product</SelectItem>
-                        <SelectItem value="service">Service</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                {formData.type === "product" && (
-                  <div className="space-y-2">
-                    <Label htmlFor="stock">Stock*</Label>
-                    <Input
-                      id="stock"
-                      type="number"
-                      min="1"
-                      value={formData.stock}
-                      onChange={(e) =>
-                        setFormData({ ...formData, stock: e.target.value })
-                      }
-                      required
-                    />
-                  </div>
-                )}
-                <div className="space-y-2">
-                  <Label htmlFor="category">Category*</Label>
-                  <Select
-                    value={formData.category}
-                    onValueChange={(value) =>
-                      setFormData({ ...formData, category: value })
-                    }
-                    required
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categories.map((cat) => (
-                        <SelectItem key={cat} value={cat}>
-                          {cat}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="images">Image URLs (comma-separated)</Label>
-                  <Input
-                    id="images"
-                    value={formData.images}
-                    onChange={(e) =>
-                      setFormData({ ...formData, images: e.target.value })
-                    }
-                    placeholder="https://example.com/image1.jpg, ..."
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Leave empty to use default image
-                  </p>
-                </div>
-                <Button type="submit" className="w-full">
-                  Add Listing
-                </Button>
-              </form>
-            </DialogContent>
-          </Dialog>
+          <div className="flex gap-2">
+            <Button
+              onClick={() => navigate("/add-product")}
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              <Package size={18} />
+              Add Product
+            </Button>
+            <Button
+              onClick={() => navigate("/add-service")}
+              className="flex items-center gap-2"
+            >
+              <Briefcase size={18} />
+              Add Service
+            </Button>
+          </div>
         </div>
 
         {/* Stats */}
@@ -541,7 +761,7 @@ const SellerDashboard = ({ user }) => {
                   <Package className="text-primary" size={24} />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">{listings.length}</p>
+                  <p className="text-2xl font-bold">{Array.isArray(listings) ? listings.length : 0}</p>
                   <p className="text-sm text-muted-foreground">Listings</p>
                 </div>
               </div>
@@ -569,7 +789,7 @@ const SellerDashboard = ({ user }) => {
                   <TrendingUp className="text-blue-500" size={24} />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">{orders.length}</p>
+                  <p className="text-2xl font-bold">{Array.isArray(orders) ? orders.length : 0}</p>
                   <p className="text-sm text-muted-foreground">Orders</p>
                 </div>
               </div>
@@ -582,7 +802,7 @@ const SellerDashboard = ({ user }) => {
                   <Calendar className="text-purple-500" size={24} />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">{bookings.length}</p>
+                  <p className="text-2xl font-bold">{Array.isArray(bookings) ? bookings.length : 0}</p>
                   <p className="text-sm text-muted-foreground">Bookings</p>
                 </div>
               </div>
@@ -631,15 +851,16 @@ const SellerDashboard = ({ user }) => {
         </Card>
 
         {/* Tabs */}
-        <Tabs defaultValue="listings">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
             <TabsTrigger value="listings">My Listings</TabsTrigger>
+            <TabsTrigger value="service-requests">Service Requests</TabsTrigger>
             <TabsTrigger value="bookings">Bookings</TabsTrigger>
             <TabsTrigger value="orders">Orders</TabsTrigger>
           </TabsList>
 
           <TabsContent value="listings" className="mt-6">
-            {listings.length > 0 ? (
+            {Array.isArray(listings) && listings.length > 0 ? (
               <div className="space-y-6">
                 {serviceListings.length > 0 && (
                   <div>
@@ -650,12 +871,14 @@ const SellerDashboard = ({ user }) => {
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                       {serviceListings.map((service) => (
-                        <Card key={service.id}>
+                        <Card key={service.id || service._id}>
                           <CardContent className="pt-6">
                             <div className="flex items-start gap-4">
                               <img
-                                src={service.images[0]}
-                                alt={service.title}
+                                src={Array.isArray(service.images) && service.images.length > 0 
+                                  ? service.images[0] 
+                                  : "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=400"}
+                                alt={service.title || "Service"}
                                 className="w-20 h-20 rounded-lg object-cover"
                               />
                               <div className="flex-1">
@@ -688,8 +911,8 @@ const SellerDashboard = ({ user }) => {
                 <div>
                   <h3 className="text-lg font-semibold mb-4">All Listings</h3>
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5 md:gap-6">
-                    {listings.map((listing) => (
-                      <ListingCard key={listing.id} listing={listing} />
+                    {(Array.isArray(listings) ? listings : []).map((listing) => (
+                      <ListingCard key={listing.id || listing._id} listing={listing} />
                     ))}
                   </div>
                 </div>
@@ -703,29 +926,156 @@ const SellerDashboard = ({ user }) => {
                   />
                   <p className="text-lg font-medium">No listings yet</p>
                   <p className="text-muted-foreground mb-4">
-                    Start selling by adding your first listing
+                    Start selling by adding your first product or service
                   </p>
-                  <Button onClick={() => setShowAddListing(true)}>
-                    Add Listing
-                  </Button>
+                  <div className="flex gap-2 justify-center">
+                    <Button onClick={() => navigate("/add-product")}>
+                      <Package size={18} className="mr-2" />
+                      Add Product
+                    </Button>
+                    <Button onClick={() => navigate("/add-service")}>
+                      <Briefcase size={18} className="mr-2" />
+                      Add Service
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          <TabsContent value="service-requests" className="mt-6">
+            {Array.isArray(serviceRequests) && serviceRequests.length > 0 ? (
+              <div className="space-y-4">
+                {serviceRequests.map((request) => (
+                  <Card key={request.id || request._id}>
+                    <CardHeader>
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <h3 className="font-semibold text-lg">{request.title}</h3>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Posted by: {request.client_name || "Unknown Buyer"}
+                          </p>
+                        </div>
+                        <Badge className={getStatusColor(request.status)}>
+                          {request.status}
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        <p className="text-muted-foreground">{request.description}</p>
+                        
+                        <div className="flex flex-wrap gap-2">
+                          <Badge variant="secondary">{request.category}</Badge>
+                          <Badge variant="outline">
+                            {request.experience_level || "intermediate"}
+                          </Badge>
+                          {request.skills_required && request.skills_required.length > 0 && (
+                            <>
+                              {request.skills_required.slice(0, 3).map((skill, idx) => (
+                                <Badge key={idx} variant="outline">{skill}</Badge>
+                              ))}
+                              {request.skills_required.length > 3 && (
+                                <Badge variant="outline">+{request.skills_required.length - 3} more</Badge>
+                              )}
+                            </>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div>
+                            <p className="text-muted-foreground">Budget</p>
+                            <p className="font-semibold text-green-600">
+                              ${request.budget?.toFixed(2) || "0.00"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Deadline</p>
+                            <p className="font-semibold">
+                              {request.deadline
+                                ? new Date(request.deadline).toLocaleDateString()
+                                : "N/A"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Proposals</p>
+                            <p className="font-semibold">
+                              {request.proposal_count || request.proposals_count || 0}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Match Score</p>
+                            <p className="font-semibold">
+                              {request.ai_match_score !== undefined
+                                ? `${request.ai_match_score}%`
+                                : "N/A"}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2 pt-2">
+                          <Button
+                            variant="outline"
+                            onClick={() =>
+                              navigate(`/service-request/${request.id || request._id}`)
+                            }
+                          >
+                            <Eye size={16} className="mr-2" />
+                            View Details
+                          </Button>
+                          {request.status === "open" && (
+                            <Button
+                              onClick={() =>
+                                handleBookServiceRequest(request.id || request._id)
+                              }
+                              className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+                            >
+                              <Briefcase size={16} className="mr-2" />
+                              Book This Request
+                            </Button>
+                          )}
+                          {request.status !== "open" && (
+                            <Button disabled variant="outline">
+                              {request.status === "in_progress"
+                                ? "Already Booked"
+                                : "Not Available"}
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <Card>
+                <CardContent className="pt-10 pb-10 text-center">
+                  <Briefcase
+                    size={48}
+                    className="mx-auto text-muted-foreground mb-4"
+                  />
+                  <p className="text-lg font-medium">No service requests available</p>
+                  <p className="text-muted-foreground">
+                    Check back later for new service requests from buyers
+                  </p>
                 </CardContent>
               </Card>
             )}
           </TabsContent>
 
           <TabsContent value="bookings" className="mt-6">
-            {bookings.length > 0 ? (
+            {Array.isArray(bookings) && bookings.length > 0 ? (
               <div className="space-y-4">
                 {bookings.map((booking) => (
-                  <Card key={booking.id}>
+                  <Card key={booking.id || booking._id}>
                     <CardHeader>
                       <div className="flex items-start justify-between">
                         <div>
                           <h3 className="font-semibold text-lg">
-                            {booking.service_title}
+                            {booking.service_title || booking.service_name || "Service Booking"}
                           </h3>
                           <p className="text-sm text-muted-foreground mt-1">
-                            Client: {booking.client_name}
+                            Client: {booking.client_name || booking.buyer_name || "Unknown"}
                           </p>
                         </div>
                         <Badge className={getStatusColor(booking.status)}>
@@ -745,10 +1095,12 @@ const SellerDashboard = ({ user }) => {
                               Date
                             </p>
                             <p className="font-medium">
-                              {format(
-                                new Date(booking.start_time),
-                                "MMM d, yyyy"
-                              )}
+                              {booking.start_time || booking.booked_at 
+                                ? format(
+                                    new Date(booking.start_time || booking.booked_at),
+                                    "MMM d, yyyy"
+                                  )
+                                : "N/A"}
                             </p>
                           </div>
                         </div>
@@ -762,7 +1114,9 @@ const SellerDashboard = ({ user }) => {
                               Time
                             </p>
                             <p className="font-medium">
-                              {format(new Date(booking.start_time), "h:mm a")}
+                              {booking.start_time || booking.booked_at
+                                ? format(new Date(booking.start_time || booking.booked_at), "h:mm a")
+                                : "N/A"}
                             </p>
                           </div>
                         </div>
@@ -775,7 +1129,7 @@ const SellerDashboard = ({ user }) => {
                             <p className="text-sm text-muted-foreground">
                               Price
                             </p>
-                            <p className="font-medium">${booking.price}</p>
+                            <p className="font-medium">${booking.price || booking.amount || 0}</p>
                           </div>
                         </div>
                       </div>
@@ -835,18 +1189,18 @@ const SellerDashboard = ({ user }) => {
           </TabsContent>
 
           <TabsContent value="orders" className="mt-6">
-            {orders.length > 0 ? (
+            {Array.isArray(orders) && orders.length > 0 ? (
               <div className="space-y-4">
                 {orders.map((order) => (
-                  <Card key={order.id}>
+                  <Card key={order.id || order._id}>
                     <CardHeader>
                       <div className="flex items-start justify-between">
                         <div>
                           <h3 className="font-semibold">
-                            {order.listing_title}
+                            {order.listing_title || order.product_title || "Order"}
                           </h3>
                           <p className="text-sm text-muted-foreground mt-1">
-                            Order from: {order.buyer_name}
+                            Order from: {order.buyer_name || "Unknown"}
                           </p>
                         </div>
                         <Badge>{order.status}</Badge>
@@ -861,7 +1215,7 @@ const SellerDashboard = ({ user }) => {
                         <div>
                           <p className="text-muted-foreground">Amount</p>
                           <p className="font-medium">
-                            ${order.total_amount.toFixed(2)}
+                            ${(order.total_amount || order.amount || 0).toFixed(2)}
                           </p>
                         </div>
                         <div>
@@ -873,7 +1227,9 @@ const SellerDashboard = ({ user }) => {
                         <div>
                           <p className="text-muted-foreground">Date</p>
                           <p className="font-medium">
-                            {new Date(order.created_at).toLocaleDateString()}
+                            {order.created_at 
+                              ? new Date(order.created_at).toLocaleDateString()
+                              : "N/A"}
                           </p>
                         </div>
                       </div>

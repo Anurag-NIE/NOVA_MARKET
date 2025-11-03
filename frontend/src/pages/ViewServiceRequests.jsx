@@ -20,6 +20,7 @@ import {
   Send,
   Clock,
   ArrowLeft,
+  Trash2,
 } from "lucide-react";
 import api from "../utils/api";
 
@@ -51,19 +52,49 @@ const ViewServiceRequests = ({ user, filter = "all" }) => {
   const fetchRequests = async () => {
     setLoading(true);
     try {
-      let endpoint = "/service-requests";
-
-      if (filter === "my-requests") {
-        endpoint = "/my-service-requests";
-      }
-
-      const response = await api.get(endpoint);
-      setRequests(response.data.requests || []);
+      // Clear requests first to avoid stale data
+      setRequests([]);
+      
+      // Force fresh fetch with cache-busting
+      const params = filter === "my-requests" 
+        ? { _t: new Date().getTime() } 
+        : { status: "open", _t: new Date().getTime() };
+      
+      const response = await api.get("/service-requests", { params });
+      const requestsData = response.data?.requests || [];
+      setRequests(requestsData);
+      console.log("Fetched service requests:", requestsData.length);
     } catch (error) {
       console.error("Error fetching requests:", error);
       toast.error("Failed to load service requests");
+      setRequests([]); // Clear on error
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteServiceRequest = async (requestId) => {
+    if (!requestId) {
+      toast.error("Invalid service request ID");
+      return;
+    }
+
+    if (!confirm("Are you sure you want to delete this service request? This action cannot be undone.")) {
+      return;
+    }
+
+    try {
+      await api.delete(`/service-requests/${requestId}`);
+      toast.success("Service request deleted successfully");
+      // Remove from local state immediately
+      setRequests((prev) => 
+        prev.filter((req) => (req.id || req._id) !== requestId)
+      );
+      // Refresh data to ensure consistency
+      fetchRequests();
+    } catch (error) {
+      console.error("Error deleting service request:", error);
+      toast.error(error.response?.data?.detail || "Failed to delete service request");
     }
   };
 
@@ -217,7 +248,7 @@ const ViewServiceRequests = ({ user, filter = "all" }) => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {filteredRequests.map((request) => (
               <Card
-                key={request._id}
+                key={request.id || request._id}
                 className="hover:shadow-xl transition-all duration-300 border-2 hover:border-blue-500"
               >
                 <CardHeader>
@@ -284,7 +315,7 @@ const ViewServiceRequests = ({ user, filter = "all" }) => {
                       variant="outline"
                       className="flex-1"
                       onClick={() =>
-                        navigate(`/service-request/${request._id}`)
+                        navigate(`/service-request/${request.id || request._id}`)
                       }
                     >
                       <Eye size={16} className="mr-2" />
@@ -295,7 +326,7 @@ const ViewServiceRequests = ({ user, filter = "all" }) => {
                       <Button
                         className="flex-1 bg-gradient-to-r from-purple-600 to-blue-600"
                         onClick={() =>
-                          navigate(`/submit-proposal/${request._id}`)
+                          navigate(`/submit-proposal/${request.id || request._id}`)
                         }
                       >
                         <Send size={16} className="mr-2" />
@@ -304,15 +335,28 @@ const ViewServiceRequests = ({ user, filter = "all" }) => {
                     )}
 
                     {user?.role === "buyer" && filter === "my-requests" && (
-                      <Button
-                        className="flex-1"
-                        onClick={() =>
-                          navigate(`/manage-proposals/${request._id}`)
-                        }
-                      >
-                        <Eye size={16} className="mr-2" />
-                        Proposals ({request.proposals_count || 0})
-                      </Button>
+                      <>
+                        <Button
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() =>
+                            navigate(`/manage-proposals/${request.id || request._id}`)
+                          }
+                        >
+                          <Eye size={16} className="mr-2" />
+                          Proposals ({request.proposals_count || request.proposal_count || 0})
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          onClick={() =>
+                            handleDeleteServiceRequest(request.id || request._id)
+                          }
+                          className="flex items-center gap-2"
+                        >
+                          <Trash2 size={16} />
+                          Delete
+                        </Button>
+                      </>
                     )}
                   </div>
                 </CardContent>

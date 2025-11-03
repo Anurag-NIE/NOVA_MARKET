@@ -20,7 +20,8 @@ class Settings:
     
     # Database
     MONGO_URL = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
-    DB_NAME = os.environ.get('DB_NAME', 'novomarket')
+    # Try multiple database name options to match actual MongoDB database
+    DB_NAME = os.environ.get('DB_NAME') or os.environ.get('MONGODB_DB_NAME') or 'MarketPlace'  # Default to MarketPlace to match MongoDB Compass
     
     # Security
     JWT_SECRET = os.environ.get('JWT_SECRET', 'your-secret-key-change-in-production')
@@ -39,7 +40,7 @@ class Settings:
     FROM_EMAIL = os.getenv('FROM_EMAIL', 'noreply@novomarket.com')
     
     # CORS
-    CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173').split(',')
+    CORS_ORIGINS = [origin.strip() for origin in os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173').split(',')]
     
     # File Upload
     MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
