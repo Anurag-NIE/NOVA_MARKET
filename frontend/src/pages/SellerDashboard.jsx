@@ -189,7 +189,7 @@
 
 
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import { Card, CardHeader, CardContent } from "../components/ui/card";
@@ -559,123 +559,63 @@ const SellerDashboard = ({ user }) => {
   );
   const serviceListings = (Array.isArray(listings) ? listings : []).filter((l) => l.type === "service");
 
-  // Calculate dynamic chart data from last 7 days
-  const getChartData = () => {
-    const today = new Date();
-    const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const last7Days = [];
+  // Generate dummy chart data with random curve for all sellers
+  // Using useMemo to ensure consistent data per seller
+  const chartData = useMemo(() => {
+    // Use seller ID as seed for consistent random curve per seller
+    const seed = user?.id ? user.id.toString().split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) : Math.floor(Math.random() * 1000);
     
-    // Initialize data for last 7 days
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-      date.setHours(0, 0, 0, 0);
-      
-      last7Days.push({
-        day: daysOfWeek[date.getDay()],
-        date: date.toISOString().split('T')[0],
-        sales: 0,
-        views: 0
-      });
-    }
+    // Simple seeded random function
+    const seededRandom = (seed, index) => {
+      const x = Math.sin((seed + index) * 12.9898) * 43758.5453;
+      return x - Math.floor(x);
+    };
     
-    console.log("📊 Chart calculation - Last 7 days:", last7Days.map(d => d.date));
-    console.log("📊 Chart calculation - Orders count:", orders?.length || 0);
+    // Generate base values with smooth curve
+    const baseValue = 30 + (seededRandom(seed, 0) * 40); // Base between 30-70
+    const peakMultiplier = 0.6 + (seededRandom(seed, 1) * 0.8); // Peak between 0.6-1.4
     
-    // Calculate sales from orders
-    if (Array.isArray(orders) && orders.length > 0) {
-      orders.forEach(order => {
-        const orderDate = order.created_at || order.timestamp;
-        const amount = order.total_amount || order.amount || 0;
-        
-        if (orderDate && amount > 0) {
-          try {
-            const date = new Date(orderDate);
-            if (!isNaN(date.getTime())) {
-              date.setHours(0, 0, 0, 0);
-              const dateStr = date.toISOString().split('T')[0];
-              
-              const dayData = last7Days.find(d => d.date === dateStr);
-              if (dayData) {
-                dayData.sales += amount;
-                console.log(`  ✅ Order matched: ${dateStr} - Added $${amount}`);
-              } else {
-                console.log(`  ⚠️ Order date ${dateStr} not in last 7 days range`);
-              }
-            }
-          } catch (e) {
-            console.error("Error parsing order date:", orderDate, e);
-          }
-        }
-      });
-    }
+    // Create a curve that peaks around weekend (Fri-Sat)
+    const curvePattern = [0.7, 0.85, 1.1, 1.4, 1.2, 0.95, 0.8]; // Wed to Tue pattern
     
-    // Calculate sales from bookings
-    if (Array.isArray(bookings) && bookings.length > 0) {
-      bookings.forEach(booking => {
-        const bookingDate = booking.start_time || booking.booked_at || booking.created_at;
-        const amount = booking.price || booking.amount || 0;
-        
-        if (bookingDate && amount > 0) {
-          try {
-            const date = new Date(bookingDate);
-            if (!isNaN(date.getTime())) {
-              date.setHours(0, 0, 0, 0);
-              const dateStr = date.toISOString().split('T')[0];
-              
-              const dayData = last7Days.find(d => d.date === dateStr);
-              if (dayData) {
-                dayData.sales += amount;
-                console.log(`  ✅ Booking matched: ${dateStr} - Added $${amount}`);
-              } else {
-                console.log(`  ⚠️ Booking date ${dateStr} not in last 7 days range`);
-              }
-            }
-          } catch (e) {
-            console.error("Error parsing booking date:", bookingDate, e);
-          }
-        }
-      });
-    }
-    
-    // Ensure minimum values for better visualization (if sales are very low, add small baseline)
-    last7Days.forEach(day => {
-      if (day.sales === 0) {
-        // This shouldn't happen with our test data, but add a safety check
-        console.warn(`⚠️ Day ${day.day} has zero sales - this should not happen!`);
+    return [
+      { 
+        day: 'Wed', 
+        sales: Math.floor(baseValue * curvePattern[0] * peakMultiplier + seededRandom(seed, 2) * 15),
+        views: Math.floor(baseValue * curvePattern[0] * peakMultiplier * 2.5 + seededRandom(seed, 3) * 20)
+      },
+      { 
+        day: 'Thu', 
+        sales: Math.floor(baseValue * curvePattern[1] * peakMultiplier + seededRandom(seed, 4) * 15),
+        views: Math.floor(baseValue * curvePattern[1] * peakMultiplier * 2.5 + seededRandom(seed, 5) * 20)
+      },
+      { 
+        day: 'Fri', 
+        sales: Math.floor(baseValue * curvePattern[2] * peakMultiplier + seededRandom(seed, 6) * 15),
+        views: Math.floor(baseValue * curvePattern[2] * peakMultiplier * 2.5 + seededRandom(seed, 7) * 20)
+      },
+      { 
+        day: 'Sat', 
+        sales: Math.floor(baseValue * curvePattern[3] * peakMultiplier + seededRandom(seed, 8) * 15),
+        views: Math.floor(baseValue * curvePattern[3] * peakMultiplier * 2.5 + seededRandom(seed, 9) * 20)
+      },
+      { 
+        day: 'Sun', 
+        sales: Math.floor(baseValue * curvePattern[4] * peakMultiplier + seededRandom(seed, 10) * 15),
+        views: Math.floor(baseValue * curvePattern[4] * peakMultiplier * 2.5 + seededRandom(seed, 11) * 20)
+      },
+      { 
+        day: 'Mon', 
+        sales: Math.floor(baseValue * curvePattern[5] * peakMultiplier + seededRandom(seed, 12) * 15),
+        views: Math.floor(baseValue * curvePattern[5] * peakMultiplier * 2.5 + seededRandom(seed, 13) * 20)
+      },
+      { 
+        day: 'Tue', 
+        sales: Math.floor(baseValue * curvePattern[6] * peakMultiplier + seededRandom(seed, 14) * 15),
+        views: Math.floor(baseValue * curvePattern[6] * peakMultiplier * 2.5 + seededRandom(seed, 15) * 20)
       }
-    });
-    
-    console.log("📊 Final chart data:", last7Days.map(d => `${d.day} (${d.date}): $${d.sales.toFixed(2)}`));
-    console.log("📊 Chart summary:", {
-      totalSales: last7Days.reduce((sum, d) => sum + d.sales, 0),
-      minDay: Math.min(...last7Days.map(d => d.sales)),
-      maxDay: Math.max(...last7Days.map(d => d.sales)),
-      avgDay: last7Days.reduce((sum, d) => sum + d.sales, 0) / last7Days.length
-    });
-    
-    // Calculate views (approximate from listings - using created_at as proxy)
-    if (Array.isArray(listings)) {
-      listings.forEach(listing => {
-        const listingDate = listing.created_at || listing.timestamp;
-        if (listingDate) {
-          const date = new Date(listingDate);
-          date.setHours(0, 0, 0, 0);
-          const dateStr = date.toISOString().split('T')[0];
-          
-          const dayData = last7Days.find(d => d.date === dateStr);
-          if (dayData) {
-            // Estimate views (you might want to track actual views separately)
-            dayData.views += 10; // Placeholder - replace with actual view count if available
-          }
-        }
-      });
-    }
-    
-    return last7Days;
-  };
-  
-  const chartData = getChartData();
+    ];
+  }, [user?.id]);
 
   const handleBookServiceRequest = async (requestId) => {
     if (!requestId) {
