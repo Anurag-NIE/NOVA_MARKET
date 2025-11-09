@@ -1,7 +1,12 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
@@ -25,16 +30,21 @@ const AddService = ({ user }) => {
   const [skillInput, setSkillInput] = useState("");
 
   const categories = [
-    "Web Development",
-    "Mobile Development",
-    "UI/UX Design",
-    "Data Science",
-    "Machine Learning",
-    "DevOps",
-    "Content Writing",
-    "Digital Marketing",
-    "Video Editing",
-    "Graphic Design",
+    "Grocery & Daily Essentials",
+    "Home Services (Plumbing, Electrical, Cleaning)",
+    "Food & Catering",
+    "Tailoring & Alterations",
+    "Beauty & Wellnes",
+    "Local Handicrafts & Art",
+    "Appliance Repair & Maintenance",
+    "Tutoring & Education Services",
+    "Event Planning & Photography",
+    "Fitness & Personal Training",
+    "Transportation & Delivery",
+    "Pet Care & Supplies",
+    "Gardening & Landscaping",
+    "Local Fashion & Accessories",
+    "Web Development & IT Services",
   ];
 
   const experienceLevels = ["beginner", "intermediate", "expert"];
@@ -106,7 +116,7 @@ const AddService = ({ user }) => {
       });
 
       toast.success("Service added successfully!");
-      
+
       // Reset form
       setFormData({
         title: "",
@@ -117,14 +127,17 @@ const AddService = ({ user }) => {
         experience_level: "intermediate",
         skills: [],
       });
-      
+
       // Navigate after a short delay
       setTimeout(() => {
         navigate("/seller-dashboard");
       }, 1500);
     } catch (error) {
       console.error("Error adding service:", error);
-      const errorMessage = error.response?.data?.detail || error.message || "Failed to add service";
+      const errorMessage =
+        error.response?.data?.detail ||
+        error.message ||
+        "Failed to add service";
       toast.error(errorMessage);
     } finally {
       setLoading(false);
@@ -137,7 +150,10 @@ const AddService = ({ user }) => {
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-950 dark:to-blue-950 flex items-center justify-center py-8 px-4">
         <Card className="max-w-md w-full shadow-lg">
           <CardContent className="pt-6 text-center">
-            <Briefcase size={48} className="mx-auto mb-4 text-muted-foreground" />
+            <Briefcase
+              size={48}
+              className="mx-auto mb-4 text-muted-foreground"
+            />
             <h2 className="text-2xl font-bold mb-2">Please Login</h2>
             <p className="text-muted-foreground mb-4">
               You need to be logged in to add services
@@ -157,12 +173,17 @@ const AddService = ({ user }) => {
             <Briefcase size={48} className="mx-auto mb-4 text-red-500" />
             <h2 className="text-2xl font-bold mb-2">Access Denied</h2>
             <p className="text-muted-foreground mb-4">
-              Only sellers can add services. Your current role is: <strong className="capitalize">{user.role}</strong>
+              Only sellers can add services. Your current role is:{" "}
+              <strong className="capitalize">{user.role}</strong>
             </p>
             <div className="flex gap-2 justify-center">
-              <Button variant="outline" onClick={() => navigate("/")}>Go Home</Button>
+              <Button variant="outline" onClick={() => navigate("/")}>
+                Go Home
+              </Button>
               {user.role === "buyer" && (
-                <Button onClick={() => navigate("/buyer-dashboard")}>Buyer Dashboard</Button>
+                <Button onClick={() => navigate("/buyer-dashboard")}>
+                  Buyer Dashboard
+                </Button>
               )}
             </div>
           </CardContent>
@@ -376,4 +397,3 @@ const AddService = ({ user }) => {
 };
 
 export default AddService;
-
