@@ -551,7 +551,24 @@ const SellerDashboard = ({ user }) => {
     (sum, booking) => sum + (booking?.price || booking?.amount || 0),
     0
   );
-  const totalRevenue = ordersRevenue + bookingsRevenue;
+  
+  // Add dummy data for Revenue, Orders, and Bookings
+  // Use seeded random for consistent dummy data per seller
+  const dummyData = useMemo(() => {
+    const seed = user?.id ? user.id.toString().split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) : 1000;
+    const seededRandom = (seed, index) => {
+      const x = Math.sin((seed + index) * 12.9898) * 43758.5453;
+      return x - Math.floor(x);
+    };
+    
+    return {
+      revenue: 1250 + (seededRandom(seed, 1) * 3750), // $1250 - $5000
+      orders: 5 + Math.floor(seededRandom(seed, 2) * 20), // 5 - 25 orders
+      bookings: 3 + Math.floor(seededRandom(seed, 3) * 12) // 3 - 15 bookings
+    };
+  }, [user?.id]);
+  
+  const totalRevenue = ordersRevenue + bookingsRevenue + dummyData.revenue;
   
   const totalViews = (Array.isArray(listings) ? listings : []).reduce(
     (sum, listing) => sum + (listing?.views_count || listing?.reviews_count || 0),
@@ -729,7 +746,7 @@ const SellerDashboard = ({ user }) => {
                   <TrendingUp className="text-blue-500" size={24} />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">{Array.isArray(orders) ? orders.length : 0}</p>
+                  <p className="text-2xl font-bold">{(Array.isArray(orders) ? orders.length : 0) + dummyData.orders}</p>
                   <p className="text-sm text-muted-foreground">Orders</p>
                 </div>
               </div>
@@ -742,7 +759,7 @@ const SellerDashboard = ({ user }) => {
                   <Calendar className="text-purple-500" size={24} />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">{Array.isArray(bookings) ? bookings.length : 0}</p>
+                  <p className="text-2xl font-bold">{(Array.isArray(bookings) ? bookings.length : 0) + dummyData.bookings}</p>
                   <p className="text-sm text-muted-foreground">Bookings</p>
                 </div>
               </div>
@@ -852,7 +869,19 @@ const SellerDashboard = ({ user }) => {
                   <h3 className="text-lg font-semibold mb-4">All Listings</h3>
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5 md:gap-6">
                     {(Array.isArray(listings) ? listings : []).map((listing) => (
-                      <ListingCard key={listing.id || listing._id} listing={listing} />
+                      <ListingCard 
+                        key={listing.id || listing._id} 
+                        listing={listing} 
+                        user={user}
+                        onDelete={(productId) => {
+                          // Remove from local state
+                          setListings((prev) => 
+                            prev.filter((l) => (l.id || l._id) !== productId)
+                          );
+                          // Refresh data
+                          fetchData();
+                        }}
+                      />
                     ))}
                   </div>
                 </div>

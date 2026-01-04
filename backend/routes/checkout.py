@@ -416,6 +416,8 @@ async def stripe_webhook(request: Request):
                         products=products,
                         total_amount=total_amount,
                         status="confirmed",
+                        payment_method="stripe",
+                        payment_status="paid",
                         stripe_session_id=session_id
                     )
                     
@@ -459,3 +461,135 @@ async def stripe_webhook(request: Request):
             )
     
     return {"status": "success"}
+
+
+@router.post("/create-cod-order")
+async def create_cod_order(
+    payload: CheckoutSessionRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Create Cash on Delivery order for products"""
+    db = get_db()
+    
+    if current_user.role != "buyer":
+        raise HTTPException(status_code=403, detail="Only buyers can create orders")
+    
+    if not payload.items or len(payload.items) == 0:
+        raise HTTPException(status_code=400, detail="No items provided")
+    
+    if payload.type != "product":
+        raise HTTPException(status_code=400, detail="COD is only available for products")
+    
+    try:
+        product_ids = []
+        products = []
+        total_amount = 0
+        
+        # Process each item
+        for item in payload.items:
+            # CheckoutItem is a Pydantic model, access attributes directly
+            product_id = item.id
+            quantity = item.quantity  # Default is 1 in the model
+            
+            # Get product details
+            product = await db.products.find_one({"id": product_id}, {"_id": 0})
+            if not product:
+                raise HTTPException(status_code=404, detail=f"Product {product_id} not found")
+            
+            # Check stock
+            if product.get('stock', 0) < quantity:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Insufficient stock for {product.get('title', 'product')}. Available: {product.get('stock', 0)}"
+                )
+            
+            price = product.get('price', 0)
+            subtotal = price * quantity
+            total_amount += subtotal
+            
+            product_ids.append(product_id)
+            
+            # Create product dict for order (already clean since we used {"_id": 0})
+            products.append({
+                **product,
+                "quantity": quantity,
+                "subtotal": subtotal
+            })
+            
+            # Update stock
+            await db.products.update_one(
+                {"id": product_id},
+                {"$inc": {"stock": -quantity}}
+            )
+        
+        if not products:
+            raise HTTPException(status_code=400, detail="No valid products found")
+        
+        # Get seller info (assuming single seller for simplicity)
+        seller_id = products[0]['seller_id']
+        seller = await db.users.find_one({"id": seller_id}, {"_id": 0, "password": 0})
+        
+        # Create order with COD payment method
+        order = ProductOrder(
+            buyer_id=current_user.id,
+            buyer_name=current_user.name,
+            seller_id=seller_id,
+            seller_name=seller.get('name', '') if seller else '',
+            product_ids=product_ids,
+            products=products,
+            total_amount=total_amount,
+            status="pending",  # Pending until delivery confirmation
+            payment_method="cod",
+            payment_status="pending"  # Will be marked as paid on delivery
+        )
+        
+        order_dict = order.model_dump()
+        order_dict['timestamp'] = order_dict.pop('created_at').isoformat()
+        
+        await db.orders.insert_one(order_dict)
+        
+        # Clear cart
+        await db.cart.delete_many({"buyer_id": current_user.id})
+        
+        logger.info(f"✅ COD Order created: {order_dict.get('id')} for user {current_user.id}")
+        
+        # Clean order_dict for JSON serialization - remove any ObjectIds that might have been added
+        from bson import ObjectId
+        
+        def clean_for_json(obj):
+            """Recursively clean ObjectIds and other non-serializable objects"""
+            if isinstance(obj, ObjectId):
+                return str(obj)
+            elif isinstance(obj, dict):
+                # Remove _id and clean nested objects
+                cleaned = {}
+                for k, v in obj.items():
+                    if k == '_id':
+                        continue
+                    cleaned[k] = clean_for_json(v)
+                return cleaned
+            elif isinstance(obj, list):
+                return [clean_for_json(item) for item in obj]
+            elif isinstance(obj, datetime):
+                return obj.isoformat()
+            else:
+                return obj
+        
+        # Clean the order dict before returning
+        clean_order = clean_for_json(order_dict)
+        
+        return {
+            "message": "Order placed successfully",
+            "order_id": order_dict.get('id'),
+            "order": clean_order,
+            "payment_method": "cod"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error creating COD order: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create order: {str(e)}"
+        )

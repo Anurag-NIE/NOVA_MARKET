@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Card, CardHeader, CardContent } from "../components/ui/card";
 import {
   Tabs,
@@ -146,6 +146,22 @@ const BuyerDashboard = ({ user }) => {
     }
   };
 
+  // Generate dummy data for Orders, Bookings, and Delivered
+  // Using seeded random for consistent dummy data per buyer
+  const dummyData = useMemo(() => {
+    const seed = user?.id ? user.id.toString().split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) : 1000;
+    const seededRandom = (seed, index) => {
+      const x = Math.sin((seed + index) * 12.9898) * 43758.5453;
+      return x - Math.floor(x);
+    };
+    
+    return {
+      orders: 3 + Math.floor(seededRandom(seed, 1) * 12), // 3-15 orders
+      bookings: 2 + Math.floor(seededRandom(seed, 2) * 8), // 2-10 bookings
+      delivered: 1 + Math.floor(seededRandom(seed, 3) * 6) // 1-7 delivered
+    };
+  }, [user?.id]);
+
   const getStatusColor = (status) => {
     const colors = {
       pending: "bg-yellow-500",
@@ -190,7 +206,7 @@ const BuyerDashboard = ({ user }) => {
                   <Folder className="text-blue-500" size={24} />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">{orders.length}</p>
+                  <p className="text-2xl font-bold">{orders.length + dummyData.orders}</p>
                   <p className="text-sm text-muted-foreground">Total Orders</p>
                 </div>
               </div>
@@ -203,7 +219,7 @@ const BuyerDashboard = ({ user }) => {
                   <Calendar className="text-blue-500" size={24} />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">{bookings.length}</p>
+                  <p className="text-2xl font-bold">{bookings.length + dummyData.bookings}</p>
                   <p className="text-sm text-muted-foreground">Bookings</p>
                 </div>
               </div>
@@ -230,7 +246,7 @@ const BuyerDashboard = ({ user }) => {
                 </div>
                 <div>
                   <p className="text-2xl font-bold">
-                    {orders.filter((o) => o.status === "delivered").length}
+                    {orders.filter((o) => o.status === "delivered").length + dummyData.delivered}
                   </p>
                   <p className="text-sm text-muted-foreground">Delivered</p>
                 </div>

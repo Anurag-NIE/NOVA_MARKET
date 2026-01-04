@@ -17,6 +17,7 @@ import {
   Minus,
   CreditCard,
   ArrowRight,
+  Banknote,
 } from "lucide-react";
 import api from "../utils/api";
 
@@ -25,6 +26,7 @@ const CartPage = ({ user }) => {
   const [cart, setCart] = useState([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState("stripe"); // "stripe" or "cod"
 
   useEffect(() => {
     if (!user || user.role !== "buyer") {
@@ -198,16 +200,28 @@ const CartPage = ({ user }) => {
 
     setProcessing(true);
     try {
-      const response = await api.post("/checkout/create-session", {
-        items: cart.map((item) => ({ id: item.product_id, quantity: item.quantity })),
-        type: "product",
-      });
+      if (paymentMethod === "cod") {
+        // Handle Cash on Delivery
+        const response = await api.post("/checkout/create-cod-order", {
+          items: cart.map((item) => ({ id: item.product_id, quantity: item.quantity })),
+          type: "product",
+        });
 
-      const url = response.data?.url || response.data?.checkout_url;
-      if (url) {
-        window.location.href = url;
+        toast.success("Order placed successfully! You will pay on delivery.");
+        navigate("/payment-success?cod=true");
       } else {
-        throw new Error("No checkout URL received");
+        // Handle Stripe payment
+        const response = await api.post("/checkout/create-session", {
+          items: cart.map((item) => ({ id: item.product_id, quantity: item.quantity })),
+          type: "product",
+        });
+
+        const url = response.data?.url || response.data?.checkout_url;
+        if (url) {
+          window.location.href = url;
+        } else {
+          throw new Error("No checkout URL received");
+        }
       }
     } catch (error) {
       console.error("Checkout error:", error);
@@ -372,15 +386,71 @@ const CartPage = ({ user }) => {
                       </span>
                     </div>
 
+                    {/* Payment Method Selection */}
+                    <div className="mb-4 space-y-3">
+                      <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                        Payment Method
+                      </label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setPaymentMethod("stripe")}
+                          className={`p-3 rounded-lg border-2 transition-all ${
+                            paymentMethod === "stripe"
+                              ? "border-purple-600 bg-purple-50 dark:bg-purple-900/20"
+                              : "border-slate-200 dark:border-slate-700 hover:border-purple-300"
+                          }`}
+                        >
+                          <CreditCard
+                            size={20}
+                            className={`mx-auto mb-2 ${
+                              paymentMethod === "stripe"
+                                ? "text-purple-600"
+                                : "text-slate-400"
+                            }`}
+                          />
+                          <p className="text-xs font-medium">Card Payment</p>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPaymentMethod("cod")}
+                          className={`p-3 rounded-lg border-2 transition-all ${
+                            paymentMethod === "cod"
+                              ? "border-green-600 bg-green-50 dark:bg-green-900/20"
+                              : "border-slate-200 dark:border-slate-700 hover:border-green-300"
+                          }`}
+                        >
+                          <Banknote
+                            size={20}
+                            className={`mx-auto mb-2 ${
+                              paymentMethod === "cod"
+                                ? "text-green-600"
+                                : "text-slate-400"
+                            }`}
+                          />
+                          <p className="text-xs font-medium">Cash on Delivery</p>
+                        </button>
+                      </div>
+                    </div>
+
                     <Button
                       onClick={handleCheckout}
                       disabled={processing || cart.length === 0}
-                      className="w-full h-12 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+                      className={`w-full h-12 ${
+                        paymentMethod === "cod"
+                          ? "bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+                          : "bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+                      }`}
                     >
                       {processing ? (
                         <>
                           <div className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
                           Processing...
+                        </>
+                      ) : paymentMethod === "cod" ? (
+                        <>
+                          <Banknote size={20} className="mr-2" />
+                          Place Order (COD)
                         </>
                       ) : (
                         <>

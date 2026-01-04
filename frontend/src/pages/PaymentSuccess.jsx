@@ -3,23 +3,29 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardHeader, CardContent } from '../components/ui/card';
 import api from '../utils/api';
-import { CheckCircle, Loader2 } from 'lucide-react';
+import { CheckCircle, Loader2, Banknote } from 'lucide-react';
 import { toast } from 'sonner';
 
 const PaymentSuccess = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const sessionId = searchParams.get('session_id');
-  const [checking, setChecking] = useState(true);
+  const isCOD = searchParams.get('cod') === 'true';
+  const [checking, setChecking] = useState(!isCOD);
   const [status, setStatus] = useState(null);
 
   useEffect(() => {
+    if (isCOD) {
+      setChecking(false);
+      setStatus({ payment_status: 'pending', payment_method: 'cod' });
+      return;
+    }
     if (sessionId) {
       checkPaymentStatus();
     } else {
       setChecking(false);
     }
-  }, [sessionId]);
+  }, [sessionId, isCOD]);
 
   const checkPaymentStatus = async () => {
     let attempts = 0;
@@ -75,6 +81,13 @@ const PaymentSuccess = () => {
                 <Loader2 size={48} className="mx-auto text-primary animate-spin mb-4" />
                 <h2 className="text-2xl font-semibold">Verifying Payment</h2>
                 <p className="text-muted-foreground">Please wait while we confirm your payment...</p>
+              </>
+            ) : isCOD || status?.payment_method === 'cod' ? (
+              <>
+                <Banknote size={48} className="mx-auto text-green-500 mb-4" />
+                <h2 className="text-2xl font-semibold text-green-500">Order Placed Successfully!</h2>
+                <p className="text-muted-foreground">Your order has been placed. You will pay on delivery.</p>
+                <p className="text-sm text-muted-foreground mt-2">Order Status: Pending</p>
               </>
             ) : status?.payment_status === 'paid' ? (
               <>

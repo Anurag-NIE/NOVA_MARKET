@@ -74,6 +74,8 @@ class ProductOrder(BaseModel):
     products: List[Dict[str, Any]] = []  # Full product details
     total_amount: float
     status: str = "pending"  # pending, confirmed, shipped, delivered, cancelled
+    payment_method: Optional[str] = "stripe"  # "stripe" or "cod"
+    payment_status: Optional[str] = "pending"  # pending, paid, failed
     stripe_session_id: Optional[str] = None
     shipping_address: Optional[str] = None
     tracking_number: Optional[str] = None

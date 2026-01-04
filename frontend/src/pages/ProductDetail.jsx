@@ -18,6 +18,7 @@ import {
   Edit,
   MoreVertical,
   Sparkles,
+  Heart,
 } from "lucide-react";
 import api from "../utils/api";
 import {
@@ -45,10 +46,17 @@ const ProductDetail = ({ user }) => {
   const [quantity, setQuantity] = useState(1);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [inWishlist, setInWishlist] = useState(false);
 
   useEffect(() => {
     fetchProduct();
   }, [id]);
+
+  useEffect(() => {
+    if (user && product) {
+      checkWishlist();
+    }
+  }, [product, user]);
 
   const fetchProduct = async () => {
     setLoading(true);
@@ -61,6 +69,46 @@ const ProductDetail = ({ user }) => {
       navigate("/products");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const checkWishlist = async () => {
+    if (!user) return;
+    
+    try {
+      const response = await api.get("/wishlist");
+      const productId = product?.id || product?._id || id;
+      const wishlist = response.data || [];
+      setInWishlist(wishlist.some((item) => (item.id === productId || item._id === productId)));
+    } catch (error) {
+      console.error("Error checking wishlist:", error);
+    }
+  };
+
+  const toggleWishlist = async () => {
+    if (!user) {
+      toast.error("Please login to add items to wishlist");
+      navigate("/login");
+      return;
+    }
+
+    if (user.role !== "buyer") {
+      toast.error("Only buyers can add to wishlist");
+      return;
+    }
+
+    try {
+      const productId = product?.id || product?._id || id;
+      const method = inWishlist ? "delete" : "post";
+      const response = await api[method](`/wishlist/${productId}`);
+      
+      setInWishlist(!inWishlist);
+      toast.success(
+        inWishlist ? "Removed from wishlist" : "Added to wishlist"
+      );
+    } catch (error) {
+      console.error("Error toggling wishlist:", error);
+      toast.error("Failed to update wishlist");
     }
   };
 
@@ -220,6 +268,24 @@ const ProductDetail = ({ user }) => {
                       <h1 className="text-5xl font-bold bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300 bg-clip-text text-transparent">
                         {product.title}
                       </h1>
+                      {user?.role === "buyer" && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={toggleWishlist}
+                          className={`h-12 w-12 rounded-full transition-all duration-200 ${
+                            inWishlist
+                              ? "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50"
+                              : "hover:bg-slate-100 dark:hover:bg-slate-800"
+                          }`}
+                          title={inWishlist ? "Remove from wishlist" : "Add to wishlist"}
+                        >
+                          <Heart
+                            size={24}
+                            className={inWishlist ? "fill-current" : ""}
+                          />
+                        </Button>
+                      )}
                       {isOwner && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>

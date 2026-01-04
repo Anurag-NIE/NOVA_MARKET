@@ -359,20 +359,33 @@ async def remove_from_wishlist(listing_id: str, current_user: User = Depends(get
     await db.wishlist.delete_one({"user_id": current_user.id, "listing_id": listing_id})
     return {"message": "Removed from wishlist"}
 
-@router.get("/wishlist", response_model=List[Listing])
+@router.get("/wishlist")
 async def get_wishlist(current_user: User = Depends(get_current_user)):
-    """Get user's wishlist"""
+    """Get user's wishlist (includes both listings and products)"""
     db = get_db()
     wishlist_items = await db.wishlist.find({"user_id": current_user.id}, {"_id": 0}).to_list(1000)
     listing_ids = [item['listing_id'] for item in wishlist_items]
     
+    # Get both listings and products
     listings = await db.listings.find({"id": {"$in": listing_ids}}, {"_id": 0}).to_list(1000)
+    products = await db.products.find({"id": {"$in": listing_ids}}, {"_id": 0}).to_list(1000)
     
+    # Combine results
+    result = []
+    
+    # Process listings
     for p in listings:
         if isinstance(p.get('timestamp'), str):
             p['created_at'] = datetime.fromisoformat(p.pop('timestamp'))
+        result.append(p)
     
-    return [Listing(**p) for p in listings]
+    # Process products
+    for p in products:
+        if isinstance(p.get('timestamp'), str):
+            p['created_at'] = datetime.fromisoformat(p.pop('timestamp'))
+        result.append(p)
+    
+    return result
 
 # ============ PAYMENT ROUTES (STRIPE) ============
 
