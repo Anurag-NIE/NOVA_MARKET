@@ -333,6 +333,57 @@ async def create_checkout_session(
         )
 
 
+@router.get("/status/{session_id}", response_model=Dict[str, Any])
+async def get_checkout_status(session_id: str):
+    """Get status of a Stripe checkout session."""
+    logger.info(f"🔵 Checking status for session_id: {session_id}")
+
+    if not session_id:
+        raise HTTPException(status_code=400, detail="No session_id provided")
+
+    # Handle development mock *before* attempting any Stripe operations
+    if session_id == "dev_mock":
+        logger.info("✅ Responding with mock success for dev_mock session.")
+        return {"payment_status": "paid", "session_id": "dev_mock"}
+
+    db = get_db()
+
+    try:
+        # Check if Stripe API key is available
+        if not stripe.api_key:
+            logger.warning("⚠️ Stripe not configured. Cannot verify session via API.")
+            # If no API key, we can't check any real session, so it's a configuration error.
+            raise HTTPException(status_code=503, detail="Payment gateway not configured")
+
+        # Retrieve session from Stripe
+        session = stripe.checkout.Session.retrieve(session_id)
+        payment_status = session.payment_status
+
+        logger.info(f"✅ Stripe session {session_id} status: {payment_status}")
+
+        # If paid, ensure our database is updated. This provides redundancy for webhooks.
+        if payment_status == "paid":
+            local_session = await db.checkout_sessions.find_one({"session_id": session_id})
+            
+            if local_session and local_session.get("status") != "completed":
+                logger.info(f"⏳ Updating local session {session_id} to completed.")
+                
+                await db.checkout_sessions.update_one(
+                    {"session_id": session_id},
+                    {"$set": {"status": "completed"}}
+                )
+        
+        return {"payment_status": payment_status, "session_id": session_id}
+
+    except StripeErrorCompat as e:
+        logger.error(f"❌ Stripe API error for session {session_id}: {str(e)}")
+        # The session ID is likely invalid or expired
+        raise HTTPException(status_code=404, detail="Session not found or invalid.")
+    except Exception as e:
+        logger.error(f"❌ Unexpected error checking status for {session_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error.")
+
+
 @router.post("/webhook/stripe")
 async def stripe_webhook(request: Request):
     """Handle Stripe webhook for payment confirmation"""

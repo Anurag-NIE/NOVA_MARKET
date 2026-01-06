@@ -39,10 +39,15 @@ async def register(user_data: UserCreate):
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     
+    # Normalize role to prevent capitalization/whitespace issues
+    role = user_data.role or "buyer"
+    if isinstance(role, str):
+        role = role.strip().lower()
+
     user = User(
         email=user_data.email,
         name=user_data.name,
-        role=user_data.role
+        role=role
     )
     
     user_dict = user.model_dump()

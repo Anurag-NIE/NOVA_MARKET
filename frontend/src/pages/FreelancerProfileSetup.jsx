@@ -35,19 +35,54 @@ const FreelancerProfileSetup = ({ user }) => {
     availability: "available",
   });
 
-  const availableSkills = [
-    "React", "Node.js", "Python", "Django", "FastAPI", "PostgreSQL",
-    "MongoDB", "AWS", "Docker", "Kubernetes", "UI/UX Design", "Figma",
-    "Adobe XD", "Content Writing", "SEO", "Digital Marketing",
-    "Video Editing", "Data Science", "Machine Learning", "TensorFlow",
-    "Vue.js", "Angular", "TypeScript", "GraphQL", "Redis",
-  ];
+const availableSkills = [
+  // Home & Repair
+  "Electrical Work",
+  "Plumbing",
+  "Carpentry",
+  "Appliance Repair",
+  "AC Repair",
 
-  const availableCategories = [
-    "Web Development", "Mobile Development", "UI/UX Design",
-    "Data Science", "Machine Learning", "DevOps", "Content Writing",
-    "Digital Marketing", "Video Editing", "Graphic Design", "Consulting",
-  ];
+  // Cleaning & Maintenance
+  "Home Cleaning",
+  "Pest Control",
+
+  // Delivery & Logistics
+  "Local Delivery",
+  "Two-Wheeler Delivery",
+  "Goods Transport",
+
+  // Skilled Labor
+  "Painting",
+  "General Maintenance",
+
+  // Food & Personal
+  "Home Cooking",
+  "Catering",
+  "Tailoring",
+
+  // Business Support
+  "Order Handling",
+  "Billing / POS",
+
+  // Emergency
+  "Emergency Services",
+];
+
+
+const availableCategories = [
+  "Home Services",
+  "Repair & Maintenance",
+  "Local Delivery",
+  "Skilled Labor",
+  "Cleaning & Maintenance",
+  "Food & Catering",
+  "Personal & Lifestyle",
+  "Pet Services",
+  "Business Support",
+  "Emergency Services",
+];
+
 
   useEffect(() => {
     loadProfile(userId);

@@ -40,45 +40,54 @@ const PostServiceRequest = () => {
   });
 
   const categories = [
-    "Web Development",
-    "Mobile Development",
-    "UI/UX Design",
-    "Data Science",
-    "Machine Learning",
-    "DevOps",
-    "Content Writing",
-    "Digital Marketing",
-    "Video Editing",
-    "Graphic Design",
-    "Consulting",
+    "Home & Daily Services",
+    "Local Shops & Delivery",
+    "Repair & Maintenance",
+    "Transport & Logistics",
+    "Skilled Labor & Construction",
+    "Food & Catering",
+    "Personal & Lifestyle",
+    "Pet Services",
+    "Business & Shop Services",
+    "Emergency Services",
   ];
 
   const availableSkills = [
-    "React",
-    "Node.js",
-    "Python",
-    "Django",
-    "FastAPI",
-    "PostgreSQL",
-    "MongoDB",
-    "AWS",
-    "Docker",
-    "Kubernetes",
-    "UI/UX Design",
-    "Figma",
-    "Adobe XD",
-    "Content Writing",
-    "SEO",
-    "Digital Marketing",
-    "Video Editing",
-    "Data Science",
-    "Machine Learning",
-    "TensorFlow",
-    "Vue.js",
-    "Angular",
-    "TypeScript",
-    "GraphQL",
-    "Redis",
+    // Core Home Services
+    "Electrical Repair",
+    "Plumbing",
+    "Carpentry",
+    "AC Repair & Installation",
+    "Appliance Repair",
+
+    // Cleaning & Maintenance
+    "Home Cleaning",
+    "Pest Control",
+
+    // Delivery & Transport
+    "Local Delivery",
+    "Two-Wheeler Delivery",
+    "Goods Transport",
+
+    // Repair Services
+    "Mobile Repair",
+    "Computer / Laptop Repair",
+
+    // Skilled Labor
+    "Painting",
+    "General Maintenance",
+
+    // Food & Personal
+    "Home Cooking",
+    "Catering",
+    "Tailoring",
+
+    // Business & Shops
+    "Shop Order Handling",
+    "Billing / POS Handling",
+
+    // Emergency
+    "Emergency Service",
   ];
 
   const handleSubmit = async (e) => {
@@ -154,44 +163,56 @@ const PostServiceRequest = () => {
         statusText: error?.response?.statusText,
         request: error?.request,
       });
-      
+
       // Handle different error types
       let errorMessage = "Failed to post service request";
-      
+
       // Network errors (no response from server)
-      if (error.code === "ERR_NETWORK" || error.message === "Network Error" || !error.response) {
-        errorMessage = "Network error. Please check if the backend server is running.";
+      if (
+        error.code === "ERR_NETWORK" ||
+        error.message === "Network Error" ||
+        !error.response
+      ) {
+        errorMessage =
+          "Network error. Please check if the backend server is running.";
         console.error("Network error - backend might be down or CORS issue");
       }
       // HTTP errors (server responded with error)
       else if (error.response) {
         const detail = error.response.data?.detail;
-        
+
         if (detail) {
           if (typeof detail === "string") {
             errorMessage = detail;
           } else if (Array.isArray(detail)) {
             // Pydantic validation errors come as array
-            const messages = detail.map((err) => {
-              if (typeof err === "string") return err;
-              if (err?.msg) return `${err.loc?.join(".") || "Field"}: ${err.msg}`;
-              return JSON.stringify(err);
-            }).filter(Boolean);
-            errorMessage = messages.length > 0 ? messages.join(", ") : errorMessage;
+            const messages = detail
+              .map((err) => {
+                if (typeof err === "string") return err;
+                if (err?.msg)
+                  return `${err.loc?.join(".") || "Field"}: ${err.msg}`;
+                return JSON.stringify(err);
+              })
+              .filter(Boolean);
+            errorMessage =
+              messages.length > 0 ? messages.join(", ") : errorMessage;
           } else if (typeof detail === "object") {
-            errorMessage = detail.msg || detail.message || JSON.stringify(detail);
+            errorMessage =
+              detail.msg || detail.message || JSON.stringify(detail);
           }
         } else if (error.response.data?.message) {
           errorMessage = error.response.data.message;
         } else {
-          errorMessage = `Server error (${error.response.status}): ${error.response.statusText || "Unknown error"}`;
+          errorMessage = `Server error (${error.response.status}): ${
+            error.response.statusText || "Unknown error"
+          }`;
         }
       }
       // Other errors
       else if (error.message) {
         errorMessage = error.message;
       }
-      
+
       toast.error(errorMessage);
     } finally {
       setLoading(false);

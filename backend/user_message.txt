@@ -1,0 +1,10 @@
+I've updated your `.env` file with the details you provided.
+
+Now that your Stripe API keys are configured, please **restart your backend server**.
+
+Then, make sure to complete these remaining steps:
+
+1.  **Configure the Stripe webhook**: In your Stripe dashboard, set up the webhook to point to `YOUR_APP_URL/api/checkout/webhook/stripe`. If you are running your backend locally, you will need to use a tool like `ngrok` to expose your local server to the internet so Stripe can send webhook events.
+2.  **Ensure frontend interaction**: Verify that your frontend is correctly interacting with the Stripe payment routes defined in `routes/checkout.py` (specifically `/api/checkout/session` for creating a checkout session and `/api/checkout/webhook/stripe` for webhooks).
+
+Let me know if you encounter any further issues!

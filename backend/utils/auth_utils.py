@@ -69,6 +69,13 @@ async def get_current_user(authorization: str = Header(None)) -> User:
     # Convert timestamp to created_at if needed
     if isinstance(user_doc.get('timestamp'), str):
         user_doc['created_at'] = datetime.fromisoformat(user_doc.pop('timestamp'))
+
+    # Normalize role to avoid issues from capitalization/whitespace
+    role = user_doc.get('role', 'buyer')
+    if isinstance(role, str):
+        user_doc['role'] = role.strip().lower()
+    else:
+        user_doc['role'] = 'buyer'
     
     return User(**user_doc)
 
